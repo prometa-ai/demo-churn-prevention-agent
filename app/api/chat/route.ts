@@ -10,7 +10,7 @@ const openai = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, customer, agentType } = await request.json();
+    const { message, customer, agentType, conversationContext, gpt4oContext } = await request.json();
 
     if (!message || !customer) {
       return NextResponse.json(
@@ -30,11 +30,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Translate agent type to a more descriptive role for the prompt
-    const agentRole = translateAgentRole(agentType);
-
-    // Create a prompt that includes customer context and the agent's role
-    const prompt = createPrompt(message, customer, agentRole);
+    // Use the provided GPT-4o context if available, otherwise generate a standard prompt
+    const prompt = gpt4oContext || createPrompt(message, customer, translateAgentRole(agentType));
 
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
@@ -50,7 +47,7 @@ export async function POST(request: NextRequest) {
         },
       ],
       temperature: 0.7,
-      max_tokens: 500,
+      max_tokens: 600, // Increased token limit for more detailed responses
     });
 
     // Extract the response

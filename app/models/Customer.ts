@@ -7,6 +7,7 @@ export interface Customer {
   accountNumber: string;
   churnProbability: number;
   customerSince: string;
+  billIncreaseRate?: number;
   plan: {
     name: string;
     monthlyCost: number;

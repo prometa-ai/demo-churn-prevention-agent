@@ -7,6 +7,8 @@ Bu proje, telekom sektöründe müşteri kaybını önlemek için yapay zeka des
 - **Müşteri Gösterge Paneli**: Tüm müşterilerin genel bakışı, ayrılma riski skorları ve temel bilgiler
 - **Detaylı Müşteri Profilleri**: Her müşteri için kapsamlı bilgiler, kullanım verileri ve destek geçmişi
 - **Yapay Zeka Destekli Sohbet**: Müşterilerle doğal dil etkileşimi sağlayan akıllı sohbet arayüzü
+  - **Kişiselleştirilmiş Başlangıç Mesajları**: Müşteri verilerine göre özelleştirilmiş proaktif mesajlar
+  - **GPT-4o Bağlam Yönetimi**: Tutarlı ve kişiselleştirilmiş konuşma akışı sağlayan gelişmiş bağlam yönetimi
 - **Çoklu Ajan Sistemi**: Farklı görevleri yerine getiren uzmanlaşmış AI ajanları
   - Orkestrasyon Ajanı: Müşteri ihtiyaçlarını değerlendirme ve yanıtları koordine etme
   - İletişim Ajanı: Proaktif müşteri iletişimi ve müşteri kaybını önleme stratejileri
@@ -21,6 +23,41 @@ Bu proje, telekom sektöründe müşteri kaybını önlemek için yapay zeka des
 - **Frontend**: Next.js, React, TypeScript, Chakra UI
 - **AI/ML**: OpenAI GPT-4o, LangChain, Vector Database (HNSWLib)
 - **Veri**: 100 gerçekçi mock müşteri verisi, Vodafone kampanya ve tarife verileri
+
+## GPT-4o Bağlam Yönetimi
+
+Sistem, gelişmiş bir bağlam yönetimi mekanizması kullanarak müşteri ile tutarlı ve kişiselleştirilmiş konuşma akışı sağlar:
+
+1. **GPT-4o Tabanlı Kişiselleştirilmiş Başlangıç Mesajları**:
+   - GPT-4o ile müşteri verileri analiz edilerek tamamen otomatik ve derin kişiselleştirme
+   - Tüm müşteri verilerinin (paket bilgileri, kullanım geçmişi, destek geçmişi, memnuniyet puanları) mesaj içeriğine entegrasyonu
+   - Müşteri durumuna göre (churn riski, kullanım paterni, destek talepleri, fatura durumu) özelleştirilmiş teklifler
+   - Çoklu faktör analizi ile müşterinin gerçek ihtiyaçlarını hedefleyen proaktif iletişim
+   - **Destek Geçmişi Odaklı İletişim**: Yüksek ayrılma riskine sahip müşterilerde destek talep sayısı, memnuniyet puanları ve bekleyen destek talepleri özellikle vurgulanır
+
+2. **Destek Kaynaklı Churn Riski Analizi**:
+   - Yüksek destek talep sayısı (3'ten fazla) olan müşterilerin belirlenmesi
+   - Düşük memnuniyet puanına (<3.5) sahip müşterilerin tespit edilmesi
+   - Beklemede olan talepleri bulunan müşterilerin önceliklendirilmesi
+   - Destek kaynaklı ayrılma riskinin otomatik hesaplanması
+   - Destek sorunları olan müşterilere özel, öncelikli destek hizmeti sunulması
+
+3. **Diyalog Bağlam Yönetimi**:
+   - GPT-4o için yapılandırılmış bağlam bilgisi oluşturma
+   - Konuşma konusunun (tarife, kampanya, ödeme, vb.) sürekli takibi
+   - Önceki konuşma geçmişinin kaydedilmesi ve analizi
+   - Müşteri yanıtlarına göre dinamik bağlam güncelleme
+   - Destek sorunları olan yüksek riskli müşteriler için özel etkileşim yönergeleri
+
+4. **Akıllı Ajan Seçimi ve Etkileşim Yönetimi**:
+   - Destek sorunu olan yüksek riskli müşteriler için otomatik olarak İletişim Ajanına yönlendirme
+   - Takip mesajlarında selam ifadesi kullanmama
+   - Konuşma konusu devamlılığını sağlama
+   - İlgisiz konuların tanıtılmasını önleme
+   - Ajan tipi sürekliliğinin korunması
+   - Gereksiz tekliflerden kaçınma
+
+Bu sistem, müşteri devamlılığını artırmak ve müşteri memnuniyetini yükseltmek için her müşteriye özel, tutarlı ve bağlama uygun etkileşimler sunar. GPT-4o'nun kapsamlı müşteri veri analizi sayesinde, sistemimiz müşteri ihtiyaçlarını daha derinlemesine anlayarak, müşteri kaybını önlemeye odaklanan proaktif ve kişiselleştirilmiş çözümler sunabilmektedir. Özellikle destek sorunları yaşayan yüksek riskli müşterilere öncelik vererek, ayrılma riskini en aza indirmeyi hedeflemektedir.
 
 ## Başlangıç
 

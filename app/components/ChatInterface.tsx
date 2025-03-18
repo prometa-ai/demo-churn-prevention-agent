@@ -41,6 +41,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
+  // Defining a type for conversation context to track topics
+  type ConversationContext = {
+    currentTopic: 'data_package' | 'premium_package' | 'payment' | 'campaigns' | 'customer_service' | 'general';
+    initialOffer: string;
+    customerResponseCount: number;
+  };
+
+  // Initialize state for conversation context
+  const [conversationContext, setConversationContext] = useState<ConversationContext>({
+    currentTopic: 'general',
+    initialOffer: '',
+    customerResponseCount: 0
+  });
+
   // Scroll to bottom of chat when messages change
   useEffect(() => {
     scrollToBottom();
@@ -48,16 +62,94 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
 
   // Initialize chat with a welcome message
   useEffect(() => {
-    const initialMessage: ChatMessage = {
-      id: Date.now().toString(),
-      sender: 'ai',
-      text: generateProactiveInitialMessage(customer),
-      timestamp: new Date(),
-      agentType: 'personalization'
+    // Fetch the initial message from GPT-4o via API
+    const fetchInitialMessage = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch('/api/initialMessage', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customer,
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('API request failed');
+        }
+        
+        const data = await response.json();
+        
+        // Set the conversation context
+        setConversationContext({
+          currentTopic: data.topic,
+          initialOffer: data.initialMessage,
+          customerResponseCount: 0
+        });
+        
+        // Add the initial message to the chat
+        const initialMessageObj: ChatMessage = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: data.initialMessage,
+          timestamp: new Date(),
+          agentType: 'personalization'
+        };
+        
+        setMessages([initialMessageObj]);
+      } catch (error) {
+        console.error('Error fetching initial message:', error);
+        
+        // Fallback to local generation if API fails
+        const initialMessage = generateProactiveInitialMessage(customer);
+        
+        // Determine the initial topic based on the message content
+        let initialTopic: ConversationContext['currentTopic'] = 'general';
+        
+        if (initialMessage.toLowerCase().includes('veri kullanımınızın limitinize yaklaştığını')) {
+          initialTopic = 'data_package';
+        } else if (initialMessage.toLowerCase().includes('premium paket')) {
+          initialTopic = 'premium_package';
+        } else if (initialMessage.toLowerCase().includes('fatura') || initialMessage.toLowerCase().includes('ödeme')) {
+          initialTopic = 'payment';
+        } else if (initialMessage.toLowerCase().includes('kampanya') || initialMessage.toLowerCase().includes('hizmet')) {
+          initialTopic = 'campaigns';
+        }
+        
+        // Set the initial conversation context
+        setConversationContext({
+          currentTopic: initialTopic,
+          initialOffer: initialMessage,
+          customerResponseCount: 0
+        });
+        
+        // Add the initial message to the chat
+        const initialMessageObj: ChatMessage = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: initialMessage,
+          timestamp: new Date(),
+          agentType: 'personalization'
+        };
+        
+        setMessages([initialMessageObj]);
+        
+        toast({
+          title: 'Bilgi',
+          description: 'GPT tabanlı kişiselleştirilmiş mesaj oluşturulamadı. Yerel yanıt kullanılıyor.',
+          status: 'info',
+          duration: 3000,
+          isClosable: true,
+        });
+      } finally {
+        setIsLoading(false);
+      }
     };
     
-    setMessages([initialMessage]);
-  }, [customer.name]);
+    fetchInitialMessage();
+  }, [customer.id]); // Use customer.id instead of customer.name to prevent unnecessary re-renders
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -77,8 +169,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
     setIsLoading(true);
+
+    // Update the conversation context to track customer responses
+    setConversationContext(prevContext => ({
+      ...prevContext,
+      customerResponseCount: prevContext.customerResponseCount + 1
+    }));
     
     try {
+      // Prepare context for GPT-4o
+      const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
+      
       // Determine which agent type to use based on the message content
       const agentType = determineAgentType(inputMessage);
       
@@ -92,6 +193,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
           message: inputMessage,
           customer,
           agentType,
+          conversationContext,
+          gpt4oContext, // Pass the GPT-4o context to the API
         }),
       });
       
@@ -164,66 +267,315 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     }
   };
 
-  // Mock function to generate AI responses
+  // Function to generate a personalized initial message based on customer data
+  const generateProactiveInitialMessage = (customer: Customer): string => {
+    // Calculate customer tenure in years
+    const customerSinceDate = new Date(customer.customerSince);
+    const currentDate = new Date();
+    const tenureYears = currentDate.getFullYear() - customerSinceDate.getFullYear();
+    
+    // Calculate data usage percentage
+    const dataUsagePercent = (customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100;
+    const callUsagePercent = (customer.usage.callUsage.current / customer.usage.callUsage.limit) * 100;
+    
+    // Calculate bill increase rate if available, otherwise calculate from payment history
+    const billIncreaseRate = (customer as any).billIncreaseRate !== undefined ? 
+      (customer as any).billIncreaseRate : 
+      customer.billing.paymentHistory.length > 1 ? 
+        ((customer.billing.currentBill - customer.billing.paymentHistory[1].amount) / customer.billing.paymentHistory[1].amount) * 100 : 
+        0;
+    
+    // Count unresolved tickets and support issues
+    const unresolvedTickets = customer.customerService.ticketHistory.filter(t => t.status === 'open' || t.status === 'pending').length;
+    const pendingTickets = customer.customerService.ticketHistory.filter(t => t.status === 'pending').length;
+    const hasHighTicketCount = customer.customerService.ticketsOpened > 3;
+    const hasLowSatisfaction = customer.customerService.averageSatisfaction < 3.5;
+    const hasSupportIssues = hasHighTicketCount || hasLowSatisfaction || unresolvedTickets > 0 || pendingTickets > 0;
+    
+    // Standard introduction that includes company, role, name and purpose
+    let message = `Merhaba ${customer.name}, ben Prometa, Vodafone Müşteri Hizmetlerinden yapay zeka tabanlı müşteri temsilciniz. `;
+    
+    // Determine the most important issue to address
+    // Priority 1: High bill increase rate
+    if (billIncreaseRate > 20) {
+      message += `Son dönemde fatura tutarınızda %${Math.round(billIncreaseRate)} oranında bir artış olduğunu fark ettim. Size daha uygun ve ihtiyaçlarınıza yönelik bir paket önerebilirim, böylece fatura tutarınızda tasarruf sağlayabilirsiniz. Bu konuda bilgi almak ister misiniz?`;
+      setConversationContext(prevContext => ({
+        ...prevContext,
+        currentTopic: 'payment'
+      }));
+    }
+    // Priority 2: Support issues
+    else if (hasSupportIssues) {
+      message += `Hizmet deneyiminizi iyileştirmek için size özel müşteri temsilcisi atayabiliriz. Bu sayede tüm sorularınız öncelikli olarak yanıtlanacak ve ihtiyaçlarınıza daha hızlı çözüm sunulacaktır. Bu hizmetten yararlanmak ister misiniz?`;
+      setConversationContext(prevContext => ({
+        ...prevContext,
+        currentTopic: 'customer_service'
+      }));
+    }
+    // Priority 3: High data usage
+    else if (dataUsagePercent > 80) {
+      message += `Veri kullanımınızın (%${Math.round(dataUsagePercent)}) limitinize yaklaştığını görüyorum. Size ${Math.round(customer.usage.dataUsage.limit * 1.5)}GB veri limitli bir paket önerebilirim. Bu konuda detaylı bilgi almak ister misiniz?`;
+      setConversationContext(prevContext => ({
+        ...prevContext,
+        currentTopic: 'data_package'
+      }));
+    }
+    // Priority 4: High call usage
+    else if (callUsagePercent > 90) {
+      message += `Konuşma sürenizin (%${Math.round(callUsagePercent)}) limitinize yaklaştığını görüyorum. Size sınırsız konuşma içeren bir paket önerebilirim. Bu konuda detaylı bilgi almak ister misiniz?`;
+      setConversationContext(prevContext => ({
+        ...prevContext,
+        currentTopic: 'data_package'
+      }));
+    }
+    // Priority 5: Overdue payment
+    else if (customer.billing.paymentStatus === 'overdue') {
+      const daysPastDue = Math.floor((new Date().getTime() - new Date(customer.billing.dueDate).getTime()) / (1000 * 3600 * 24));
+      message += `Son faturanız için ${daysPastDue} gündür ödeme beklemesi olduğunu görüyorum. Size özel ödeme seçenekleri sunabilirim. Ödeme konusunda yardımcı olmamı ister misiniz?`;
+      setConversationContext(prevContext => ({
+        ...prevContext,
+        currentTopic: 'payment'
+      }));
+    }
+    // Priority 6: Long-term customer
+    else if (tenureYears >= 2) {
+      message += `${tenureYears} yıldır değerli müşterimiz olduğunuz için sadakat programımız kapsamında size özel avantajlar sunabiliriz. Bu programdaki ayrıcalıklar hakkında bilgi almak ister misiniz?`;
+      setConversationContext(prevContext => ({
+        ...prevContext,
+        currentTopic: 'campaigns'
+      }));
+    }
+    // Default case: General usage pattern or campaign
+    else {
+      // Default message focused on their usage pattern
+      if (dataUsagePercent > 60) {
+        message += `Kullanım analizinize göre veri tüketiminizin yüksek olduğunu görüyorum. Size özel "Veri Aşım Koruması" hizmetimiz hakkında bilgi vermek isterim. Bu konuda detaylı bilgi almak ister misiniz?`;
+        setConversationContext(prevContext => ({
+          ...prevContext,
+          currentTopic: 'data_package'
+        }));
+      } else {
+        message += `Kullanım alışkanlıklarınıza uygun olabilecek yeni kampanyalarımız hakkında bilgi vermek istiyorum. Detaylı bilgi almak ister misiniz?`;
+        setConversationContext(prevContext => ({
+          ...prevContext,
+          currentTopic: 'campaigns'
+        }));
+      }
+    }
+    
+    return message;
+  };
+
+  // Function to prepare context for GPT-4o to manage dialog flow
+  const prepareGPT4OContext = (customer: Customer, messageHistory: ChatMessage[]): string => {
+    // Calculate support-related factors
+    const unresolvedTickets = customer.customerService.ticketHistory.filter(t => t.status === 'open' || t.status === 'pending').length;
+    const pendingTickets = customer.customerService.ticketHistory.filter(t => t.status === 'pending').length;
+    const recentTickets = customer.customerService.ticketHistory.filter(t => {
+      const ticketDate = new Date(t.date);
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      return ticketDate >= threeMonthsAgo;
+    }).length;
+    
+    // Calculate data usage percentage
+    const dataUsagePercent = (customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100;
+    
+    // Calculate bill increase rate if available
+    const billIncreaseRate = (customer as any).billIncreaseRate !== undefined ? 
+      (customer as any).billIncreaseRate : 
+      customer.billing.paymentHistory.length > 1 ? 
+        ((customer.billing.currentBill - customer.billing.paymentHistory[1].amount) / customer.billing.paymentHistory[1].amount) * 100 : 
+        0;
+    
+    // Check for support issues
+    const hasHighTicketCount = customer.customerService.ticketsOpened > 3;
+    const hasLowSatisfaction = customer.customerService.averageSatisfaction < 3.5;
+    const hasSupportIssues = hasHighTicketCount || hasLowSatisfaction || unresolvedTickets > 0 || pendingTickets > 0;
+    
+    // Check for high data usage
+    const hasHighDataUsage = dataUsagePercent > 80;
+    
+    // Check for high bill increase
+    const hasHighBillIncrease = billIncreaseRate > 20;
+    
+    // Calculate customer tenure in years
+    const customerSinceDate = new Date(customer.customerSince);
+    const currentDate = new Date();
+    const tenureYears = currentDate.getFullYear() - customerSinceDate.getFullYear();
+    
+    // Build the appropriate context template
+    return `
+USER DETAILS:
+- Name: ${customer.name}
+- Customer since: ${customer.customerSince} (${tenureYears} years)
+- Current plan: ${customer.plan.name} (${customer.plan.monthlyCost.toFixed(2)}₺/month)
+- Data usage: ${customer.usage.dataUsage.current}GB/${customer.usage.dataUsage.limit}GB (${Math.round(dataUsagePercent)}%)
+- Call usage: ${customer.usage.callUsage.current} mins/${customer.usage.callUsage.limit} mins (${Math.round((customer.usage.callUsage.current / customer.usage.callUsage.limit) * 100)}%)
+- Payment status: ${customer.billing.paymentStatus}
+- Churn probability: ${(customer.churnProbability * 100).toFixed()}%
+- Bill increase rate: ${billIncreaseRate.toFixed(1)}%
+
+KEY CUSTOMER METRICS:
+${hasHighBillIncrease ? `- HIGH BILL INCREASE: The customer's bill has increased by ${billIncreaseRate.toFixed(1)}% compared to previous month` : '- Bill increase rate: Normal'}
+${hasHighDataUsage ? `- HIGH DATA USAGE: The customer is using ${Math.round(dataUsagePercent)}% of their data limit` : '- Data usage: Normal'}
+${hasSupportIssues ? `- SUPPORT ISSUES: ${unresolvedTickets} unresolved tickets, ${pendingTickets} pending tickets, satisfaction rating: ${customer.customerService.averageSatisfaction.toFixed(1)}/5` : '- Support status: Normal'}
+
+SUPPORT HISTORY DETAILS:
+- Total support tickets: ${customer.customerService.ticketsOpened}
+- Last contact date: ${customer.customerService.lastContact}
+- Average satisfaction rating: ${customer.customerService.averageSatisfaction.toFixed(1)}/5
+- Unresolved tickets: ${unresolvedTickets}
+- Pending tickets: ${pendingTickets}
+- Recent tickets (last 3 months): ${recentTickets}
+
+CONVERSATION CONTEXT:
+- Current topic: ${conversationContext.currentTopic}
+- Customer response count: ${conversationContext.customerResponseCount}
+
+INTERACTION GUIDELINES:
+1. Be friendly, helpful, and solution-oriented.
+2. Focus on providing accurate information and clear explanations.
+3. Use natural, conversational Turkish language.
+4. Avoid technical jargon unless the customer uses it first.
+5. Keep responses concise and to the point.
+6. Always offer specific solutions rather than general advice.
+7. Use positive language and avoid negative phrasing.
+8. Never mention churn risk, high risk, or other technical evaluation terms.
+
+RESPONSE STRATEGY:
+${hasHighBillIncrease ? 
+`This customer has experienced a significant bill increase. Focus on offering solutions to reduce their bill:
+- Suggest more suitable packages that align with their usage patterns
+- Highlight any loyalty discounts that could be applied
+- Explain options for removing unnecessary services they may not be using
+- Offer installment payment options if they have overdue bills` : ''}
+
+${hasSupportIssues ? 
+`This customer has support-related issues. Focus on improving their experience:
+- Acknowledge their support history without highlighting specific negative metrics
+- Offer dedicated customer service representative assistance
+- Provide expedited solutions to any pending or unresolved issues
+- Reassure them that their concerns are important and will be addressed` : ''}
+
+${hasHighDataUsage ? 
+`This customer has high data usage. Focus on data-related solutions:
+- Suggest an upgrade to a higher data package
+- Offer temporary data boosters
+- Explain data-saving features and tips
+- Present special promotions for data-heavy users` : ''}
+
+MESSAGE HISTORY:
+${messageHistory.map(msg => `[${msg.sender.toUpperCase()}${msg.agentType ? ' - ' + msg.agentType : ''}]: ${msg.text}`).join('\n')}
+
+TASK:
+Analyze the customer data and conversation history, then respond appropriately to the customer's latest message. Focus on providing helpful, personalized service that addresses their specific needs.`;
+  };
+
+  // Mock function to generate AI responses based on conversation context
   const generateMockAIResponse = (userMessage: string, customer: Customer): ChatMessage => {
     const lowerCaseMessage = userMessage.toLowerCase();
     let responseText = '';
     let agentType: 'orchestrator' | 'outreach' | 'personalization' | 'rag' = 'orchestrator';
     
-    // Detect potential churn signals in user message
-    const churnSignals = [
-      'iptal', 'ayrılmak', 'bırakmak', 'değiştirmek', 'geçmek', 'pahalı', 
-      'memnun değilim', 'sorun', 'problem', 'kötü', 'yavaş', 'rakip', 
-      'diğer operatör', 'başka şirket'
+    // Check if the user's message contains positive or negative responses
+    const positiveResponses = ['evet', 'olur', 'tabii', 'tabi', 'isterim', 'detay', 'bilgi', 'anlat', 'dinliyorum'];
+    const negativeResponses = ['hayır', 'hayir', 'istemiyorum', 'gerek yok', 'ilgilenmiyorum', 'sonra', 'teşekkürler'];
+    
+    const isPositiveResponse = positiveResponses.some(response => lowerCaseMessage.includes(response));
+    const isNegativeResponse = negativeResponses.some(response => lowerCaseMessage.includes(response));
+    
+    // If customer declines the offer, thank them and end the conversation
+    if (isNegativeResponse && !lowerCaseMessage.includes('fatura') && !lowerCaseMessage.includes('paket') && 
+        !lowerCaseMessage.includes('veri') && !lowerCaseMessage.includes('internet')) {
+      responseText = `Anlaşıldı. Zamanınızı ayırdığınız için teşekkür ederim. Başka bir konuda yardımcı olabileceğim bir şey olursa, lütfen bana ulaşmaktan çekinmeyin.`;
+      return {
+        id: Date.now().toString(),
+        sender: 'ai',
+        text: responseText,
+        timestamp: new Date(),
+        agentType: conversationContext.currentTopic === 'payment' ? 'rag' : 
+                  (conversationContext.currentTopic === 'customer_service' ? 'outreach' : 'orchestrator')
+      };
+    }
+    
+    // Support terms for detecting support-related queries
+    const supportTerms = [
+      'destek', 'talep', 'sorun', 'problem', 'çözüm', 'şikayet', 'yardım', 'memnuniyet',
+      'bekleyen', 'açık', 'çözülmemiş', 'beklemede', 'müşteri temsilcisi', 'müşteri hizmetleri'
     ];
     
-    const hasChurnSignal = churnSignals.some(signal => lowerCaseMessage.includes(signal));
+    const hasSupportTerm = supportTerms.some(term => lowerCaseMessage.includes(term));
     
-    // If customer shows signs of wanting to leave
-    if (hasChurnSignal) {
-      responseText = `${customer.name} Bey/Hanım, endişelerinizi anlıyorum ve sizi müşterimiz olarak tutmak bizim için çok önemli. ${customer.customerSince} tarihinden beri bizimle olduğunuz için size özel bir sadakat indirimi sunabiliriz. Mevcut ${customer.plan.name} paketinize ek olarak, 3 ay boyunca %20 indirim ve ekstra 5GB veri hediyemiz olsun. Ayrıca, yaşadığınız sorunları çözmek için özel bir müşteri temsilcisi atayabiliriz. Bu teklifimiz hakkında ne düşünürsünüz?`;
-      agentType = 'outreach';
+    // Special handling for high churn risk customers with support issues - only one topic
+    if (customer.churnProbability > 0.6 && (hasSupportTerm || conversationContext.currentTopic === 'customer_service')) {
+      if (isPositiveResponse) {
+        responseText = `Sizin için hemen özel bir müşteri temsilcisi atayacağım. Bu temsilci, tüm sorularınıza ve sorunlarınıza öncelikli olarak yardımcı olacak. Temsilcinizin iletişim bilgilerini şimdi mesaj olarak gönderiyorum. İsterseniz şu an yaşadığınız herhangi bir sorunu benimle paylaşabilirsiniz, hemen yardımcı olmaya çalışacağım.`;
+      } else {
+        responseText = `Müşteri deneyiminizi iyileştirmek için size nasıl yardımcı olabilirim? Açık destek talepleriniz veya çözülmemiş sorunlarınız varsa öncelikli olarak bunları ele alabiliriz.`;
+      }
+      return {
+        id: Date.now().toString(),
+        sender: 'ai',
+        text: responseText,
+        timestamp: new Date(),
+        agentType: 'outreach'
+      };
     }
-    // Simple keyword-based responses with proactive suggestions
-    else if (lowerCaseMessage.includes('fatura') || lowerCaseMessage.includes('ödeme')) {
-      if (customer.billing.paymentStatus === 'overdue') {
-        responseText = `Mevcut faturanız ${customer.billing.currentBill.toFixed(2)}₺ olup son ödeme tarihi geçmiş durumda. Ancak endişelenmeyin, size özel olarak herhangi bir gecikme ücreti yansıtmadan ödeme yapabilirsiniz. Ayrıca, otomatik ödeme talimatı verirseniz, gelecekteki faturalarınızda %5 indirim sağlayabiliriz. Bu konuda yardımcı olabilir miyim?`;
-      } else {
-        responseText = `Mevcut faturanız ${customer.billing.currentBill.toFixed(2)}₺ olup son ödeme tarihi ${customer.billing.dueDate}. Ödeme durumunuz: ${customer.billing.paymentStatus === 'paid' ? 'Ödendi' : customer.billing.paymentStatus === 'pending' ? 'Beklemede' : 'Gecikmiş'}. Faturalarınızı daha kolay yönetmek için otomatik ödeme talimatı vermenizi öneririm, bu sayede %5 indirim kazanabilirsiniz. Yardımcı olabilir miyim?`;
-      }
-      agentType = 'rag';
-    } else if (lowerCaseMessage.includes('paket') || lowerCaseMessage.includes('yükseltme')) {
-      // Check if there's a better plan based on usage
-      const dataUsagePercent = (customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100;
-      const callUsagePercent = (customer.usage.callUsage.current / customer.usage.callUsage.limit) * 100;
+    
+    // Generate topic-specific responses based on the current conversation topic
+    switch (conversationContext.currentTopic) {
+      case 'data_package':
+        if (isPositiveResponse) {
+          const dataUsagePercent = (customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100;
+          responseText = `Veri kullanımınız için size iki seçenek sunabilirim: 1) Mevcut paketinize ek olarak 5GB veri paketi ekleyebiliriz ve bu ek paket sadece ${(customer.plan.monthlyCost * 0.2).toFixed(2)}₺. 2) Bir üst pakete geçiş yapabilirsiniz, bu durumda veri limitiniz iki katına çıkar ve ilk 3 ay için %15 indirim uygulayabiliriz. Hangi seçenek sizin için daha uygun olur?`;
+        } else {
+          responseText = `Veri kullanımınızla ilgili başka bir konuda yardımcı olabilir miyim? Şu anki kullanımınız ${customer.usage.dataUsage.current}GB/${customer.usage.dataUsage.limit}GB olarak görünüyor.`;
+        }
+        agentType = 'personalization';
+        break;
+        
+      case 'payment':
+        if (isPositiveResponse) {
+          responseText = `Faturanız için birkaç ödeme seçeneği sunabilirim. Kredi kartı ile hemen ödeme yapabilir, otomatik ödeme talimatı verebilir veya en yakın Vodafone bayisinden nakit ödeme yapabilirsiniz. Otomatik ödeme talimatı verirseniz, gelecekteki faturalarınızda %5 indirim sağlayabiliriz. Hangi ödeme yöntemini tercih edersiniz?`;
+        } else {
+          responseText = `Faturanızla ilgili başka bir konuda yardımcı olabilir miyim? Mevcut faturanız ${customer.billing.currentBill.toFixed(2)}₺ ve son ödeme tarihi ${customer.billing.dueDate}.`;
+        }
+        agentType = 'rag';
+        break;
       
-      if (dataUsagePercent > 90 || callUsagePercent > 90) {
-        responseText = `Şu anda ${customer.plan.name} paketini kullanıyorsunuz ve aylık ${customer.plan.monthlyCost.toFixed(2)}₺ ödüyorsunuz. Kullanım alışkanlıklarınıza baktığımda, veri ve arama kullanımınızın oldukça yüksek olduğunu görüyorum. Size özel bir teklifle, sadece ${(customer.plan.monthlyCost * 1.2).toFixed(2)}₺ karşılığında %50 daha fazla veri ve dakika içeren bir pakete geçiş yapabilirsiniz. İlk 3 ay için ek %10 indirim de sağlayabiliriz. Bu teklif hakkında detaylı bilgi almak ister misiniz?`;
-      } else if (dataUsagePercent < 50 && callUsagePercent < 50 && customer.plan.name !== 'Temel') {
-        responseText = `Şu anda ${customer.plan.name} paketini kullanıyorsunuz ve aylık ${customer.plan.monthlyCost.toFixed(2)}₺ ödüyorsunuz. Kullanım alışkanlıklarınıza baktığımda, mevcut paketinizin kapasitesini tam olarak kullanmadığınızı görüyorum. Size özel bir optimizasyon yaparak, ihtiyaçlarınıza daha uygun ve daha ekonomik bir paket önerebilirim. Bu sayede aylık ödemelerinizde tasarruf sağlayabilirsiniz. İlgilenirseniz detayları paylaşabilirim.`;
-      } else {
-        responseText = `Şu anda ${customer.plan.name} paketini kullanıyorsunuz ve aylık ${customer.plan.monthlyCost.toFixed(2)}₺ ödüyorsunuz. Kullanım alışkanlıklarınıza göre, bu paket ihtiyaçlarınıza oldukça uygun görünüyor. Ancak yine de size özel kampanyalarımız mevcut. Örneğin, aile üyeleriniz için ek hatlar eklerseniz, her hat için %15 indirim sağlayabiliriz. Ayrıca, yıllık taahhüt verirseniz, aylık faturanızda %10 indirim yapabiliriz. Bu tekliflerden herhangi biri ilginizi çeker mi?`;
-      }
-      agentType = 'personalization';
-    } else if (lowerCaseMessage.includes('veri') || lowerCaseMessage.includes('kullanım') || lowerCaseMessage.includes('internet')) {
-      const dataPercentage = Math.round((customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100);
-      
-      if (dataPercentage > 80) {
-        responseText = `Bu ay ${customer.usage.dataUsage.limit}GB veri hakkınızın ${customer.usage.dataUsage.current}GB'ını kullandınız (%${dataPercentage}). Veri kullanımınız oldukça yüksek görünüyor. Size özel olarak, bu ay için 5GB ek veri paketi ekleyebiliriz. Ayrıca, düzenli olarak yüksek veri kullanımınız olduğunu görüyorum. Bir üst pakete geçiş yaparsanız, ilk 3 ay için %15 indirim sağlayabiliriz. Bu konuda yardımcı olabilir miyim?`;
-      } else {
-        responseText = `Bu ay ${customer.usage.dataUsage.limit}GB veri hakkınızın ${customer.usage.dataUsage.current}GB'ını kullandınız (%${dataPercentage}). Veri kullanımınız şu an için limitler dahilinde. Size özel bir öneri olarak, kullanmadığınız veriyi bir sonraki aya aktarabileceğiniz 'Veri Aktarım' hizmetimizi aktifleştirebiliriz. Bu sayede hiçbir veri hakkınız boşa gitmez. İlgilenirseniz hemen aktifleştirebilirim.`;
-      }
-      agentType = 'rag';
-    } else {
-      // Default response with personalized offer
-      const customerAge = new Date().getFullYear() - new Date(customer.customerSince).getFullYear();
-      
-      if (customerAge >= 2) {
-        responseText = `${customer.name} Bey/Hanım, ${customerAge} yıldır değerli müşterimiz olduğunuz için size özel bir sadakat teklifimiz var. Mevcut paketinize ek olarak, ücretsiz 3 aylık dijital TV paketi veya 10GB ek veri hediye edebiliriz. Ayrıca, yeni cihaz alımlarında size özel %20 indirim kuponu tanımlayabiliriz. Hangi hediyemiz ilginizi çeker?`;
-      } else {
-        responseText = `${customer.name} Bey/Hanım, bizimle olduğunuz için teşekkür ederiz. Size özel olarak, arkadaşlarınızı referans gösterirseniz, hem size hem de arkadaşınıza 5GB ek veri hediye edebiliriz. Ayrıca, mobil uygulamamızı indirip kullanmaya başlarsanız, ilk ay faturanızda %10 indirim sağlayabiliriz. Bu fırsatlardan yararlanmak ister misiniz?`;
-      }
-      agentType = 'personalization';
+      case 'customer_service':
+        if (isPositiveResponse) {
+          responseText = `Müşteri deneyiminizi iyileştirmek için öncelikle açık destek taleplerinizi çözüme kavuşturacağız. Size özel bir müşteri temsilcisi atadım, kendisi sizinle en kısa sürede iletişime geçecektir. Ayrıca, bir sonraki faturanızda %10 indirim tanımladık. Başka bir konuda yardımcı olabilir miyim?`;
+        } else {
+          responseText = `Müşteri deneyiminizle ilgili herhangi bir sorunuz veya öneriniz var mı? Size en iyi hizmeti sunmak için buradayım.`;
+        }
+        agentType = 'outreach';
+        break;
+        
+      case 'campaigns':
+        if (isPositiveResponse) {
+          responseText = `Size özel sadakat kampanyamız kapsamında, bir sonraki faturanızda %15 indirim ve 10GB ekstra internet hediyesi tanımladık. Bu ayrıcalıklar otomatik olarak hesabınıza yansıtılacaktır. Kampanya hakkında başka bir detay merak ettiğiniz bir şey var mı?`;
+        } else {
+          responseText = `Sadakat kampanyalarımız hakkında başka bir bilgi almak ister misiniz? Size özel fırsatlardan yararlanmanız bizim için önemli.`;
+        }
+        agentType = 'personalization';
+        break;
+        
+      default:
+        if (hasSupportTerm) {
+          responseText = `Destek ihtiyaçlarınız için size özel bir müşteri temsilcisi atayabiliriz. Bu sayede tüm sorularınız ve sorunlarınız öncelikli olarak çözüme kavuşturulacaktır. Size nasıl yardımcı olabilirim?`;
+          agentType = 'outreach';
+        } else if (lowerCaseMessage.includes('fatura') || lowerCaseMessage.includes('ödeme')) {
+          responseText = `Faturanız ${customer.billing.currentBill.toFixed(2)}₺ tutarında ve son ödeme tarihi ${customer.billing.dueDate}. Size ödeme seçenekleri veya indirim fırsatları hakkında bilgi verebilirim. Detaylı bilgi almak ister misiniz?`;
+          agentType = 'rag';
+        } else if (lowerCaseMessage.includes('veri') || lowerCaseMessage.includes('internet')) {
+          responseText = `Veri kullanımınız ${customer.usage.dataUsage.current}GB/${customer.usage.dataUsage.limit}GB olarak görünüyor (%${Math.round((customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100)}). Size daha uygun veri paketlerimiz hakkında bilgi vermemi ister misiniz?`;
+          agentType = 'personalization';
+        } else {
+          responseText = `Size nasıl yardımcı olabilirim? Fatura, paket, kampanya veya destek konularında bilgi almak isterseniz sorabilirsiniz.`;
+          agentType = 'orchestrator';
+        }
     }
     
     return {
@@ -246,59 +598,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     }
   };
 
-  // Function to generate a personalized initial message based on customer data
-  const generateProactiveInitialMessage = (customer: Customer): string => {
-    // Check for high churn risk
-    if (customer.churnProbability > 0.7) {
-      return `Merhaba ${customer.name}, ${customer.customerSince} tarihinden beri değerli müşterimiz olduğunuz için teşekkür ederiz. Kullanım alışkanlıklarınıza göre, mevcut ${customer.plan.name} paketinizden daha avantajlı olabilecek yeni Premium paketimiz hakkında bilgi vermek istedim. Yeni paketimiz daha fazla veri ve konuşma süresi içeriyor ve sizin için özel bir indirimle sunabiliriz. Detayları öğrenmek ister misiniz?`;
-    }
-    
-    // Check for high data usage
-    const dataUsagePercent = (customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100;
-    if (dataUsagePercent > 80) {
-      return `Merhaba ${customer.name}, veri kullanımınızın limitinize yaklaştığını fark ettim. Bu ay ${customer.usage.dataUsage.limit}GB veri hakkınızın %${Math.round(dataUsagePercent)}'ini kullandınız. Size daha yüksek veri limitli bir paket önerebilir veya mevcut paketinize ek veri paketi ekleyebiliriz. Nasıl yardımcı olabilirim?`;
-    }
-    
-    // Check for payment issues
-    if (customer.billing.paymentStatus === 'overdue' || customer.billing.paymentStatus === 'pending') {
-      return `Merhaba ${customer.name}, ${customer.customerSince} tarihinden beri müşterimiz olduğunuz için teşekkür ederiz. Son faturanızla ilgili bir ödeme beklemesi olduğunu görüyorum. Size ödeme seçenekleri konusunda yardımcı olmak veya faturanızla ilgili herhangi bir sorunuz varsa yanıtlamak için buradayım.`;
-    }
-    
-    // Check for recent plan change or upgrade opportunity
-    if (customer.notes.some(note => note.includes('paket yükseltme') || note.includes('değişikliğinden memnuniyet'))) {
-      return `Merhaba ${customer.name}, ${customer.plan.name} paketinizden memnun olduğunuzu görmek harika! Size özel yeni kampanyalarımız ve ek hizmetlerimiz hakkında bilgi vermek istedim. Mevcut paketinize ekleyebileceğiniz ve deneyiminizi daha da iyileştirebilecek bazı fırsatlarımız var. Detayları duymak ister misiniz?`;
-    }
-    
-    // Default personalized message
-    return `Merhaba ${customer.name}, ${customer.customerSince} tarihinden beri değerli müşterimiz olduğunuz için teşekkür ederiz. ${customer.plan.name} paketinizin kullanımını inceledim ve size özel bazı önerilerim var. Kullanım alışkanlıklarınıza göre daha uygun olabilecek fırsatları değerlendirmek ister misiniz?`;
-  };
-
   // Function to determine which agent type to use based on the message content
   const determineAgentType = (message: string): 'orchestrator' | 'outreach' | 'personalization' | 'rag' => {
     const lowerCaseMessage = message.toLowerCase();
     
-    // Check for campaign or plan related queries - use RAG agent
+    // Comprehensive list of support-related terms
+    const supportTerms = [
+      'destek', 'talep', 'sorun', 'problem', 'çözüm', 'şikayet', 'yardım', 'memnuniyet',
+      'bekleyen', 'açık', 'çözülmemiş', 'beklemede', 'müşteri temsilcisi', 'müşteri hizmetleri',
+      'kötü deneyim', 'olumsuz', 'deneyim', 'çalışmıyor', 'arıza', 'hata'
+    ];
+    
+    // Check for any support-related terms - prioritize this check
+    const hasSupportTerm = supportTerms.some(term => lowerCaseMessage.includes(term));
+    
+    if (hasSupportTerm) {
+      // For support-related queries, always use outreach agent
+      return 'outreach';
+    }
+    
+    // Check for positive response to a customer service topic
+    if (conversationContext.currentTopic === 'customer_service' && 
+        (lowerCaseMessage.includes('evet') || lowerCaseMessage.includes('tamam') || 
+         lowerCaseMessage.includes('olur') || lowerCaseMessage.includes('isterim'))) {
+      return 'outreach';
+    }
+    
+    // Check for campaign or product-related queries
     if (lowerCaseMessage.includes('kampanya') || 
         lowerCaseMessage.includes('tarife') || 
         lowerCaseMessage.includes('paket') || 
         lowerCaseMessage.includes('teklif') || 
-        lowerCaseMessage.includes('fırsat') ||
-        lowerCaseMessage.includes('vodafone')) {
+        lowerCaseMessage.includes('fırsat')) {
       return 'rag';
     }
     
-    // Check for churn signals - use outreach agent
-    const churnSignals = [
-      'iptal', 'ayrılmak', 'bırakmak', 'değiştirmek', 'geçmek', 'pahalı', 
-      'memnun değilim', 'sorun', 'problem', 'kötü', 'yavaş', 'rakip', 
-      'diğer operatör', 'başka şirket'
-    ];
-    
-    if (churnSignals.some(signal => lowerCaseMessage.includes(signal))) {
-      return 'outreach';
-    }
-    
-    // Check for billing or payment related queries - use RAG agent
+    // Check for billing or payment related queries
     if (lowerCaseMessage.includes('fatura') || 
         lowerCaseMessage.includes('ödeme') || 
         lowerCaseMessage.includes('borç') || 
@@ -306,7 +641,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       return 'rag';
     }
     
-    // Check for usage related queries - use personalization agent
+    // Check for usage related queries
     if (lowerCaseMessage.includes('kullanım') || 
         lowerCaseMessage.includes('veri') || 
         lowerCaseMessage.includes('internet') || 

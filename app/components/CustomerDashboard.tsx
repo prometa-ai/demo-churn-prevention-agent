@@ -42,6 +42,8 @@ const CustomerDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('churnRisk');
   const [churnFilterValue, setChurnFilterValue] = useState([0, 100]);
+  const [dataUsageFilterValue, setDataUsageFilterValue] = useState([0, 150]);
+  const [billIncreaseFilterValue, setBillIncreaseFilterValue] = useState([0, 100]);
   const [showTooltip, setShowTooltip] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const bgColor = useColorModeValue('white', 'gray.800');
@@ -50,11 +52,30 @@ const CustomerDashboard = () => {
   useEffect(() => {
     // Load mock customer data
     const mockCustomers = generateMockCustomers(100);
-    setCustomers(mockCustomers);
+    
+    // Calculate bill increase rate for each customer
+    const customersWithBillIncrease = mockCustomers.map(customer => {
+      // Get current and previous bill
+      const currentBill = customer.billing.currentBill;
+      const previousBill = customer.billing.paymentHistory.length > 1 ? 
+        customer.billing.paymentHistory[1].amount : currentBill;
+      
+      // Calculate increase rate (percentage)
+      const increaseRate = previousBill !== 0 ? 
+        ((currentBill - previousBill) / previousBill) * 100 : 0;
+      
+      // Add this as a temporary property to the customer object
+      return {
+        ...customer,
+        billIncreaseRate: parseFloat(increaseRate.toFixed(1))
+      };
+    });
+    
+    setCustomers(customersWithBillIncrease);
     
     // Set the first customer as selected by default
-    if (mockCustomers.length > 0) {
-      setSelectedCustomer(mockCustomers[0]);
+    if (customersWithBillIncrease.length > 0) {
+      setSelectedCustomer(customersWithBillIncrease[0]);
     }
   }, []);
 
@@ -74,18 +95,42 @@ const CustomerDashboard = () => {
     setChurnFilterValue(val);
   };
 
+  const handleDataUsageFilterChange = (val: number[]) => {
+    setDataUsageFilterValue(val);
+  };
+
+  const handleBillIncreaseFilterChange = (val: number[]) => {
+    setBillIncreaseFilterValue(val);
+  };
+
   const handleBulkCall = () => {
     onOpen();
   };
 
-  // Apply both text and churn risk filters
-  const filteredCustomers = customers.filter(customer => 
-    (customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     customer.phoneNumber.includes(searchTerm) ||
-     customer.email.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (Math.round(customer.churnProbability * 100) >= churnFilterValue[0] &&
-     Math.round(customer.churnProbability * 100) <= churnFilterValue[1])
-  );
+  // Apply all filters
+  const filteredCustomers = customers.filter(customer => {
+    // Text filter
+    const textMatch = customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.phoneNumber.includes(searchTerm) ||
+      customer.email.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Churn risk filter
+    const churnMatch = Math.round(customer.churnProbability * 100) >= churnFilterValue[0] &&
+      Math.round(customer.churnProbability * 100) <= churnFilterValue[1];
+    
+    // Calculate data usage percentage
+    const dataUsagePercent = (customer.usage.dataUsage.current / customer.usage.dataUsage.limit) * 100;
+    
+    // Data usage filter
+    const dataUsageMatch = dataUsagePercent >= dataUsageFilterValue[0] &&
+      dataUsagePercent <= dataUsageFilterValue[1];
+    
+    // Bill increase filter
+    const billIncreaseMatch = (customer as any).billIncreaseRate >= billIncreaseFilterValue[0] &&
+      (customer as any).billIncreaseRate <= billIncreaseFilterValue[1];
+    
+    return textMatch && churnMatch && dataUsageMatch && billIncreaseMatch;
+  });
 
   const sortedCustomers = [...filteredCustomers].sort((a, b) => {
     if (sortBy === 'churnRisk') {
@@ -94,6 +139,14 @@ const CustomerDashboard = () => {
       return a.name.localeCompare(b.name);
     } else if (sortBy === 'billAmount') {
       return b.billing.currentBill - a.billing.currentBill;
+    } else if (sortBy === 'dataUsage') {
+      const aDataPercent = (a.usage.dataUsage.current / a.usage.dataUsage.limit) * 100;
+      const bDataPercent = (b.usage.dataUsage.current / b.usage.dataUsage.limit) * 100;
+      return bDataPercent - aDataPercent;
+    } else if (sortBy === 'billIncrease') {
+      const aIncrease = (a as any).billIncreaseRate || 0;
+      const bIncrease = (b as any).billIncreaseRate || 0;
+      return bIncrease - aIncrease;
     }
     return 0;
   });
@@ -154,6 +207,98 @@ const CustomerDashboard = () => {
             </HStack>
           </Box>
           
+          {/* Veri Kullanım Oranı Filtresi */}
+          <Box mb={6}>
+            <Text fontWeight="medium" fontSize="sm" mb={2}>
+              Veri Kullanım Oranı (%)
+            </Text>
+            <RangeSlider
+              min={0}
+              max={150}
+              step={10}
+              value={dataUsageFilterValue}
+              onChange={handleDataUsageFilterChange}
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+              mb={4}
+              colorScheme="blue"
+            >
+              <RangeSliderTrack>
+                <RangeSliderFilledTrack />
+              </RangeSliderTrack>
+              <Tooltip
+                hasArrow
+                bg="blue.500"
+                color="white"
+                placement="top"
+                isOpen={showTooltip}
+                label={`${dataUsageFilterValue[0]}%`}
+              >
+                <RangeSliderThumb boxSize={6} index={0} />
+              </Tooltip>
+              <Tooltip
+                hasArrow
+                bg="blue.500"
+                color="white"
+                placement="top"
+                isOpen={showTooltip}
+                label={`${dataUsageFilterValue[1]}%`}
+              >
+                <RangeSliderThumb boxSize={6} index={1} />
+              </Tooltip>
+            </RangeSlider>
+            <HStack spacing={2} fontSize="xs" color="gray.500" justifyContent="space-between">
+              <Text>Düşük Kullanım</Text>
+              <Text>Yüksek Kullanım</Text>
+            </HStack>
+          </Box>
+          
+          {/* Önceki Ay Fatura Artış Oranı Filtresi */}
+          <Box mb={6}>
+            <Text fontWeight="medium" fontSize="sm" mb={2}>
+              Önceki Ay Fatura Artış Oranı (%)
+            </Text>
+            <RangeSlider
+              min={-50}
+              max={100}
+              step={5}
+              value={billIncreaseFilterValue}
+              onChange={handleBillIncreaseFilterChange}
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+              mb={4}
+              colorScheme="orange"
+            >
+              <RangeSliderTrack>
+                <RangeSliderFilledTrack />
+              </RangeSliderTrack>
+              <Tooltip
+                hasArrow
+                bg="orange.500"
+                color="white"
+                placement="top"
+                isOpen={showTooltip}
+                label={`${billIncreaseFilterValue[0]}%`}
+              >
+                <RangeSliderThumb boxSize={6} index={0} />
+              </Tooltip>
+              <Tooltip
+                hasArrow
+                bg="orange.500"
+                color="white"
+                placement="top"
+                isOpen={showTooltip}
+                label={`${billIncreaseFilterValue[1]}%`}
+              >
+                <RangeSliderThumb boxSize={6} index={1} />
+              </Tooltip>
+            </RangeSlider>
+            <HStack spacing={2} fontSize="xs" color="gray.500" justifyContent="space-between">
+              <Text>Azalan</Text>
+              <Text>Artan</Text>
+            </HStack>
+          </Box>
+          
           <Flex mb={4} gap={2}>
             <InputGroup>
               <InputLeftElement pointerEvents="none">
@@ -184,6 +329,8 @@ const CustomerDashboard = () => {
               <option value="churnRisk">Ayrılma Riski</option>
               <option value="name">İsim</option>
               <option value="billAmount">Fatura Tutarı</option>
+              <option value="dataUsage">Veri Kullanımı</option>
+              <option value="billIncrease">Fatura Artışı</option>
             </Select>
           </Flex>
           
