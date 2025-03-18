@@ -1,35 +1,92 @@
-# Vodafone Müşteri Tutundurma Platformu
+# Telekom Müşteri Kaybını Önleme Sistemi
 
-Yapay zeka destekli müşteri tutundurma ve ayrılma riski analizi platformu.
+Bu proje, telekom sektöründe müşteri kaybını önlemek için yapay zeka destekli bir çözüm sunar. Sistem, müşteri verilerini analiz eder, ayrılma riski yüksek olan müşterileri belirler ve kişiselleştirilmiş iletişim stratejileri uygular.
 
 ## Özellikler
 
-- Kullanıcı giriş sistemi
-- Müşteri risk analizi ve segmentasyonu
-- Detaylı müşteri profilleri ve davranış analizi
-- Özelleştirilmiş kampanya önerileri
-- Raporlama ve analitik görünümler
+- **Müşteri Gösterge Paneli**: Tüm müşterilerin genel bakışı, ayrılma riski skorları ve temel bilgiler
+- **Detaylı Müşteri Profilleri**: Her müşteri için kapsamlı bilgiler, kullanım verileri ve destek geçmişi
+- **Yapay Zeka Destekli Sohbet**: Müşterilerle doğal dil etkileşimi sağlayan akıllı sohbet arayüzü
+- **Çoklu Ajan Sistemi**: Farklı görevleri yerine getiren uzmanlaşmış AI ajanları
+  - Orkestrasyon Ajanı: Müşteri ihtiyaçlarını değerlendirme ve yanıtları koordine etme
+  - İletişim Ajanı: Proaktif müşteri iletişimi ve müşteri kaybını önleme stratejileri
+  - Kişiselleştirme Ajanı: Müşteri verilerine dayalı kişiselleştirilmiş öneriler
+  - Bilgi Erişim Ajanı (RAG): Müşteri sorularını yanıtlamak için Vodafone kampanyaları ve tarifeleri hakkında güncel bilgileri kullanma
+- **Kullanım Analizi**: Müşteri kullanım eğilimlerinin görsel gösterimi
+- **Türkçe Dil Desteği**: Tüm arayüz ve içerik Türkçe olarak sunulmaktadır
+- **Vodafone Kampanyaları ve Tarifeleri**: Güncel Vodafone kampanyaları ve tarifeleri hakkında bilgi veren RAG (Retrieval-Augmented Generation) sistemi
 
 ## Teknolojiler
 
-- Next.js
-- TypeScript
-- Chakra UI
-- React
+- **Frontend**: Next.js, React, TypeScript, Chakra UI
+- **AI/ML**: OpenAI GPT-4o, LangChain, Vector Database (HNSWLib)
+- **Veri**: 100 gerçekçi mock müşteri verisi, Vodafone kampanya ve tarife verileri
 
-## Kurulum
+## Başlangıç
 
-Projeyi yerel makinenizde çalıştırmak için aşağıdaki adımları izleyin:
+### Gereksinimler
 
-```bash
-# Bağımlılıkları yükleyin
-npm install
+- Node.js 18.0.0 veya üzeri
+- npm veya yarn
+- OpenAI API anahtarı
 
-# Geliştirme sunucusunu başlatın
-npm run dev
-```
+### Kurulum
+
+1. Repoyu klonlayın:
+   ```
+   git clone https://github.com/prometa-ai/churn-prevention-agent.git
+   cd telecommunication_churn_prevention_v1
+   ```
+
+2. Kurulum scriptini çalıştırın:
+   ```
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+   
+   Bu script aşağıdaki işlemleri gerçekleştirecektir:
+   - Gerekli bağımlılıkları yükleme
+   - Gerekli dizinleri oluşturma
+   - .env.local dosyasını kontrol etme ve gerekirse oluşturma
+   - Vodafone kampanya ve tarife verilerini çekme
+   - Vektör veritabanı oluşturma
+
+3. `.env.local` dosyasını düzenleyin:
+   ```
+   OPENAI_API_KEY=your_openai_api_key
+   ```
+
+4. Geliştirme sunucusunu başlatın:
+   ```
+   npm run dev
+   ```
+
+5. Tarayıcınızda [http://localhost:3000](http://localhost:3000) adresine gidin
+
+## RAG Sistemi Hakkında
+
+Sistem, Vodafone'un kampanyaları ve tarifeleri hakkında güncel bilgileri içeren bir RAG (Retrieval-Augmented Generation) sistemi kullanmaktadır. Bu sistem, aşağıdaki kaynaklardan bilgi toplar:
+
+- [Vodafone Kampanyalar](https://www.vodafone.com.tr/kampanyalar)
+- [Vodafone Faturalı Tarifeler](https://www.vodafone.com.tr/tarifeler/faturali-tarifeler)
+- [Vodafone Faturasız Tarifeler](https://www.vodafone.com.tr/tarifeler/faturasiz-kolay-paketler)
+
+Bu bilgiler, müşterilere en uygun kampanyaları ve tarifeleri önermek için kullanılır. Sistem, müşterinin kullanım alışkanlıklarına, mevcut paketine ve ihtiyaçlarına göre kişiselleştirilmiş öneriler sunar.
+
+## Kullanım
+
+- Ana sayfada müşteri listesini görüntüleyin
+- Ayrılma riskine, isme veya fatura tutarına göre sıralayın
+- Detayları görüntülemek için bir müşteri seçin
+- Müşteri detay sayfasında genel bakış, faturalama, kullanım, destek geçmişi ve sohbet sekmelerini kullanın
+- Sohbet arayüzünü kullanarak müşteri ile etkileşime geçin
+- Kampanyalar ve tarifeler hakkında sorular sorarak RAG sistemini test edin
 
 ## Demo Kullanıcıları
 
 - Kullanıcı adı: `admin` / Şifre: `prometa2023`
-- Kullanıcı adı: `demo` / Şifre: `demo1234` 
+- Kullanıcı adı: `demo` / Şifre: `demo1234`
+
+## Lisans
+
+MIT 
