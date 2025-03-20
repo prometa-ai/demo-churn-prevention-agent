@@ -127,6 +127,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
             // Auto-send the message after transcription if silence was detected
             setTimeout(() => {
               stopSpeechRecognition();
+              // Automatically send the message after stopping speech recognition
+              if (transcript.trim()) {
+                handleSendMessage();
+              }
               isProcessingSpeechRef.current = false;
             }, 500);
           }
@@ -350,6 +354,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
               if (isListening && !isProcessingSpeechRef.current) {
                 console.log('Silence detected for 2 seconds, stopping recording');
                 stopSpeechRecognition();
+                
+                // If inputMessage has content from recognition, automatically send it
+                setTimeout(() => {
+                  if (inputMessage.trim()) {
+                    handleSendMessage();
+                  }
+                }, 600); // Give a little extra time for the final transcript to arrive
               }
             }, silenceDurationMs);
           }
