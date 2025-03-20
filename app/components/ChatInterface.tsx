@@ -235,8 +235,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         
         setMessages([initialMessageObj]);
         
-        // Convert the initial message to speech
-        handleTextToSpeech(data.initialMessage);
+        // Removed automatic text-to-speech for initial message
+        // handleTextToSpeech(data.initialMessage);
       } catch (error) {
         console.error('Error fetching initial message:', error);
         
@@ -274,8 +274,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         
         setMessages([initialMessageObj]);
         
-        // Convert the initial message to speech
-        handleTextToSpeech(initialMessage);
+        // Removed automatic text-to-speech for initial message
+        // handleTextToSpeech(initialMessage);
         
         toast({
           title: 'Bilgi',
@@ -1112,9 +1112,21 @@ Analyze the customer data and conversation history, then respond appropriately t
                 </Badge>
               )}
               <Text>{message.text}</Text>
-              <Text fontSize="xs" color={message.sender === 'user' ? 'prometaOrange.100' : 'gray.500'} textAlign="right" mt={1}>
-                {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </Text>
+              <Flex justifyContent="space-between" alignItems="center" mt={1}>
+                {message.sender === 'ai' && (
+                  <IconButton
+                    aria-label="Mesajı sesli dinle"
+                    icon={<FaMicrophone size="12px" />}
+                    size="xs"
+                    colorScheme="prometa"
+                    variant="ghost"
+                    onClick={() => handleTextToSpeech(message.text)}
+                  />
+                )}
+                <Text fontSize="xs" color={message.sender === 'user' ? 'prometaOrange.100' : 'gray.500'} ml="auto">
+                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </Flex>
             </Box>
           </Flex>
         ))}
