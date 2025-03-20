@@ -96,8 +96,8 @@ export default function Navbar() {
           <HStack spacing={8} alignItems={'center'}>
             <HStack as={'nav'} spacing={4} display={{ base: 'none', md: 'flex' }}>
               <NavLink href={'/'}>Dashboard</NavLink>
-              <NavLink href={'#'}>Müşteriler</NavLink>
-              <NavLink href={'#'}>Kampanyalar</NavLink>
+              <NavLink href={'/customers'}>Müşteriler</NavLink>
+              <NavLink href={'/campaigns'}>Kampanyalar</NavLink>
               <NavLink href={'/reports'}>Raporlar</NavLink>
             </HStack>
           </HStack>
@@ -124,8 +124,8 @@ export default function Navbar() {
           <Box pb={4} display={{ md: 'none' }}>
             <Stack as={'nav'} spacing={4}>
               <NavLink href={'/'}>Dashboard</NavLink>
-              <NavLink href={'#'}>Müşteriler</NavLink>
-              <NavLink href={'#'}>Kampanyalar</NavLink>
+              <NavLink href={'/customers'}>Müşteriler</NavLink>
+              <NavLink href={'/campaigns'}>Kampanyalar</NavLink>
               <NavLink href={'/reports'}>Raporlar</NavLink>
             </Stack>
           </Box>
