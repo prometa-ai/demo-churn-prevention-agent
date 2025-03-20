@@ -303,6 +303,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   // Setup silence detection with Web Audio API
   const setupSilenceDetection = async () => {
     try {
+      console.log("Sessizlik tespiti kurulumu başlıyor...");
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       microphoneStreamRef.current = stream;
@@ -336,30 +337,49 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         }
         const average = sum / bufferLength / 255; // Normalize to 0-1
         
+        // Debug için ortalama ses seviyesini belirli aralıklarla loglama
+        if (recordingSeconds % 2 === 0) {
+          console.log(`Ortalama ses seviyesi: ${average.toFixed(4)}, Eşik: ${silenceThreshold.current}`);
+        }
+        
         // If audio level is below threshold, start silence timer
         if (average < silenceThreshold.current) {
           if (!silenceTimerRef.current) {
-            console.log("Silence detected, starting silence timer");
+            console.log("Sessizlik algılandı, sessizlik zamanlayıcısı başlatılıyor...");
             silenceTimerRef.current = setTimeout(() => {
-              console.log('Silence detected for 2 seconds, stopping recording');
+              console.log('2 saniyelik sessizlik algılandı, kayıt durduruluyor...');
+              
               // Store input message content before stopping recognition to avoid race condition
               const currentInputMessage = inputMessage;
+              console.log(`Mevcut mesaj içeriği: "${currentInputMessage}"`);
               
               // Only proceed if we're still listening and not already processing
               if (isListening && !isProcessingSpeechRef.current) {
+                console.log("Konuşma işlemeye başlanıyor...");
                 isProcessingSpeechRef.current = true;
                 
-                // Stop the speech recognition
+                // Stop the speech recognition first
                 stopSpeechRecognition();
+                console.log("Konuşma tanıma durduruldu, mesaj gönderme hazırlanıyor...");
                 
                 // Wait a brief moment to let final transcript appear
                 setTimeout(() => {
+                  const finalMessage = inputMessage.trim() || currentInputMessage.trim();
+                  console.log(`Gönderilecek final mesaj: "${finalMessage}"`);
+                  
                   // If we have content (either from before or from final transcript), send it
-                  if (inputMessage.trim() || currentInputMessage.trim()) {
-                    handleSendMessage();
+                  if (finalMessage) {
+                    console.log("Mesaj gönderiliyor...");
+                    // Use a separate function to handle sending to avoid React state timing issues
+                    sendMessageWithText(finalMessage);
+                  } else {
+                    console.log("Boş mesaj, gönderilmedi");
                   }
+                  
                   isProcessingSpeechRef.current = false;
-                }, 800);
+                }, 1000); // Biraz daha uzun bekleme süresi
+              } else {
+                console.log("İşleme zaten devam ediyor veya dinleme durmuş, işlem yapılmıyor");
               }
             }, silenceDurationMs);
           }
@@ -379,8 +399,100 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       
       // Start silence detection
       checkSilence();
+      console.log("Sessizlik tespiti başladı");
     } catch (error) {
       console.error('Error setting up silence detection:', error);
+    }
+  };
+
+  // Helper function to send message with specific text
+  // This helps avoid React state timing issues
+  const sendMessageWithText = (text: string) => {
+    if (!text) return; // Don't send empty messages
+    
+    // Add user message to chat
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: text,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+    setIsLoading(true);
+
+    // Update the conversation context to track customer responses
+    setConversationContext(prevContext => ({
+      ...prevContext,
+      customerResponseCount: prevContext.customerResponseCount + 1
+    }));
+    
+    try {
+      // Prepare context for GPT-4o
+      const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
+      
+      // Determine which agent type to use based on the message content
+      const agentType = determineAgentType(text);
+      
+      // Call the API
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: text,
+          customer,
+          agentType,
+          conversationContext,
+          gpt4oContext, // Pass the GPT-4o context to the API
+        }),
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('API request failed');
+        }
+        return response.json();
+      })
+      .then(data => {
+        // Create AI response message
+        const aiResponse: ChatMessage = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: data.response || generateMockAIResponse(text, customer).text,
+          timestamp: new Date(),
+          agentType,
+        };
+        
+        setMessages(prev => [...prev, aiResponse]);
+        setIsLoading(false);
+        
+        // Convert the AI response to speech
+        handleTextToSpeech(aiResponse.text);
+      })
+      .catch(error => {
+        console.error('Error sending message:', error);
+        
+        // Fallback to mock response in case of error
+        const aiResponse = generateMockAIResponse(text, customer);
+        setMessages(prev => [...prev, aiResponse]);
+        setIsLoading(false);
+        
+        // Convert the mock response to speech
+        handleTextToSpeech(aiResponse.text);
+        
+        toast({
+          title: 'Hata',
+          description: 'Mesaj gönderilemedi. Yerel yanıt kullanılıyor.',
+          status: 'warning',
+          duration: 3000,
+          isClosable: true,
+        });
+      });
+    } catch (error) {
+      console.error('Error in sendMessageWithText:', error);
+      setIsLoading(false);
     }
   };
 
@@ -618,9 +730,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
 
   // Function to stop speech recognition
   const stopSpeechRecognition = () => {
+    console.log("stopSpeechRecognition çağrıldı, isListening:", isListening);
     if (speechRecognitionRef.current && isListening) {
       try {
         speechRecognitionRef.current.stop();
+        console.log("Konuşma tanıma başarıyla durduruldu");
       } catch (error) {
         console.error('Error stopping speech recognition:', error);
       }
@@ -1236,9 +1350,12 @@ Analyze the customer data and conversation history, then respond appropriately t
                 colorScheme="red" 
                 leftIcon={<FaStop />} 
                 onClick={() => {
+                  console.log("Manuel durdurma butonu tıklandı");
+                  const currentText = inputMessage.trim();
                   stopSpeechRecognition();
-                  if (inputMessage.trim()) {
-                    handleSendMessage();
+                  if (currentText) {
+                    console.log(`Manuel buton sonrası mesaj gönderiliyor: "${currentText}"`);
+                    sendMessageWithText(currentText);
                   }
                 }}
               >
