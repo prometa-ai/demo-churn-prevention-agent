@@ -122,18 +122,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         const transcript = event.results[event.results.length - 1][0].transcript;
         if (transcript) {
           setInputMessage(transcript);
-          if (!isProcessingSpeechRef.current) {
-            isProcessingSpeechRef.current = true;
-            // Auto-send the message after transcription if silence was detected
-            setTimeout(() => {
-              stopSpeechRecognition();
-              // Automatically send the message after stopping speech recognition
-              if (transcript.trim()) {
-                handleSendMessage();
-              }
-              isProcessingSpeechRef.current = false;
-            }, 500);
-          }
+          // Note: We're not automatically stopping/sending here anymore
+          // That's handled by the silence detection
         }
       };
       
@@ -349,18 +339,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         // If audio level is below threshold, start silence timer
         if (average < silenceThreshold.current) {
           if (!silenceTimerRef.current) {
+            console.log("Silence detected, starting silence timer");
             silenceTimerRef.current = setTimeout(() => {
-              // If we're still recording and silence persisted, stop recording
+              console.log('Silence detected for 2 seconds, stopping recording');
+              // Store input message content before stopping recognition to avoid race condition
+              const currentInputMessage = inputMessage;
+              
+              // Only proceed if we're still listening and not already processing
               if (isListening && !isProcessingSpeechRef.current) {
-                console.log('Silence detected for 2 seconds, stopping recording');
+                isProcessingSpeechRef.current = true;
+                
+                // Stop the speech recognition
                 stopSpeechRecognition();
                 
-                // If inputMessage has content from recognition, automatically send it
+                // Wait a brief moment to let final transcript appear
                 setTimeout(() => {
-                  if (inputMessage.trim()) {
+                  // If we have content (either from before or from final transcript), send it
+                  if (inputMessage.trim() || currentInputMessage.trim()) {
                     handleSendMessage();
                   }
-                }, 600); // Give a little extra time for the final transcript to arrive
+                  isProcessingSpeechRef.current = false;
+                }, 800);
               }
             }, silenceDurationMs);
           }
@@ -428,13 +427,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   };
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    // First capture the current input message to use throughout this function
+    const messageToSend = inputMessage.trim();
+    
+    if (!messageToSend) return; // Don't send empty messages
     
     // Add user message to chat
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       sender: 'user',
-      text: inputMessage,
+      text: messageToSend,
       timestamp: new Date()
     };
     
@@ -453,7 +455,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
       
       // Determine which agent type to use based on the message content
-      const agentType = determineAgentType(inputMessage);
+      const agentType = determineAgentType(messageToSend);
       
       // Call the API
       const response = await fetch('/api/chat', {
@@ -462,7 +464,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: inputMessage,
+          message: messageToSend,
           customer,
           agentType,
           conversationContext,
@@ -480,7 +482,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       const aiResponse: ChatMessage = {
         id: Date.now().toString(),
         sender: 'ai',
-        text: data.response || generateMockAIResponse(inputMessage, customer).text,
+        text: data.response || generateMockAIResponse(messageToSend, customer).text,
         timestamp: new Date(),
         agentType,
       };
@@ -494,7 +496,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       console.error('Error sending message:', error);
       
       // Fallback to mock response in case of error
-      const aiResponse = generateMockAIResponse(inputMessage, customer);
+      const aiResponse = generateMockAIResponse(messageToSend, customer);
       setMessages(prev => [...prev, aiResponse]);
       setIsLoading(false);
       
@@ -1219,8 +1221,8 @@ Analyze the customer data and conversation history, then respond appropriately t
               </Box>
               <Text fontWeight="medium">Konuşmaya Başlayın</Text>
               <Text fontSize="sm" color="gray.500" textAlign="center">
-                Mikrofon açık, konuştuğunuz metin otomatik olarak çevirilecektir.
-                2 saniyelik sessizlik sonrasında kayıt otomatik olarak duracaktır.
+                Mikrofon açık, konuştuğunuz metin otomatik olarak çevirilecek ve gönderilecektir.
+                2 saniyelik sessizlik sonrasında kayıt otomatik olarak duracak ve mesajınız iletilecektir.
               </Text>
               <Progress
                 value={(recordingSeconds / 30) * 100}
@@ -1235,9 +1237,12 @@ Analyze the customer data and conversation history, then respond appropriately t
                 leftIcon={<FaStop />} 
                 onClick={() => {
                   stopSpeechRecognition();
+                  if (inputMessage.trim()) {
+                    handleSendMessage();
+                  }
                 }}
               >
-                Kaydı Durdur
+                Kaydı Durdur ve Gönder
               </Button>
             </VStack>
           </ModalBody>
