@@ -28,6 +28,12 @@ import { ArrowForwardIcon, PhoneIcon, InfoIcon } from '@chakra-ui/icons';
 import { FaMicrophone, FaStop } from 'react-icons/fa';
 import { Customer } from '../models/Customer';
 
+// Define SpeechRecognition type - needed for TypeScript
+interface Window {
+  SpeechRecognition: any;
+  webkitSpeechRecognition: any;
+}
+
 interface ChatMessage {
   id: string;
   sender: 'user' | 'ai';
@@ -46,13 +52,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
   
@@ -85,6 +89,83 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      
+      // Configure recognition
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'tr-TR'; // Set Turkish language
+      
+      // Setup handlers
+      recognition.onstart = () => {
+        setIsListening(true);
+        startRecordingTimer();
+        onOpen(); // Open the recording modal
+      };
+      
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[event.results.length - 1][0].transcript;
+        if (transcript) {
+          setInputMessage(transcript);
+        }
+      };
+      
+      recognition.onend = () => {
+        setIsListening(false);
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          setRecordingSeconds(0);
+        }
+        onClose(); // Close the recording modal
+      };
+      
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          setRecordingSeconds(0);
+        }
+        
+        toast({
+          title: 'Hata',
+          description: 'Konuşma tanıma hatası: ' + event.error,
+          status: 'error',
+          duration: 3000,
+          isClosable: true,
+        });
+        
+        onClose(); // Close the recording modal
+      };
+      
+      speechRecognitionRef.current = recognition;
+    } else {
+      toast({
+        title: 'Uyarı',
+        description: 'Tarayıcınız konuşma tanıma özelliğini desteklemiyor.',
+        status: 'warning',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+    
+    return () => {
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch (e) {
+          // Ignore errors on cleanup
+        }
       }
     };
   }, []);
@@ -197,7 +278,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
       }
-      stopRecording();
+      stopSpeechRecognition();
     };
   }, []);
 
@@ -356,99 +437,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     }
   };
 
-  // Function to start recording audio for speech-to-text
-  const startRecording = async () => {
-    try {
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setMicrophoneStream(stream);
+  // Start recording timer
+  const startRecordingTimer = () => {
+    let seconds = 0;
+    recordingTimerRef.current = setInterval(() => {
+      seconds += 1;
+      setRecordingSeconds(seconds);
       
-      // Create a new media recorder
-      const recorder = new MediaRecorder(stream);
-      setMediaRecorder(recorder);
-      
-      // Clear any previous audio chunks
-      setAudioChunks([]);
-      
-      // Set up audio processing for silence detection
-      setupSilenceDetection(stream);
+      // Auto-stop recording after 30 seconds for safety
+      if (seconds >= 30) {
+        stopSpeechRecognition();
+      }
+    }, 1000);
+  };
 
-      // Set up the recorder event handlers
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          setAudioChunks((prev) => [...prev, e.data]);
-        }
-      };
-      
-      // When recording stops, convert speech to text
-      recorder.onstop = async () => {
-        if (audioChunks.length === 0) return;
-        
-        // Create a blob from the audio chunks
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        
-        // Create form data to send to the API
-        const formData = new FormData();
-        formData.append('audio', audioBlob, 'recording.webm');
-        
-        try {
-          // Call the speech-to-text API
-          const response = await fetch('/api/speech', {
-            method: 'PUT',
-            body: formData,
-          });
-          
-          if (!response.ok) {
-            throw new Error('STT API request failed');
-          }
-          
-          const data = await response.json();
-          
-          // Set the transcribed text as input
-          if (data.text) {
-            setInputMessage(data.text);
-            // Clear the recording timer and chunks
-            if (recordingTimerRef.current) {
-              clearInterval(recordingTimerRef.current);
-              setRecordingSeconds(0);
-            }
-            onClose(); // Close the recording modal
-          }
-        } catch (error) {
-          console.error('Speech-to-text error:', error);
-          toast({
-            title: 'Hata',
-            description: 'Konuşma metne dönüştürülemedi',
-            status: 'error',
-            duration: 3000,
-            isClosable: true,
-          });
-        }
-      };
-      
-      // Start recording
-      recorder.start();
-      setIsListening(true);
-      
-      // Start the recording timer
-      let seconds = 0;
-      recordingTimerRef.current = setInterval(() => {
-        seconds += 1;
-        setRecordingSeconds(seconds);
-        
-        // Auto-stop recording after 30 seconds
-        if (seconds >= 30) {
-          stopRecording();
-        }
-      }, 1000);
-      
-      // Open the recording modal
-      onOpen();
+  // Function to start speech recognition
+  const startSpeechRecognition = () => {
+    if (!speechRecognitionRef.current) {
+      toast({
+        title: 'Uyarı',
+        description: 'Tarayıcınız konuşma tanıma özelliğini desteklemiyor.',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+    
+    try {
+      speechRecognitionRef.current.start();
     } catch (error) {
-      console.error('Error starting recording:', error);
+      console.error('Error starting speech recognition:', error);
       toast({
         title: 'Hata',
-        description: 'Mikrofon erişimi sağlanamadı',
+        description: 'Konuşma tanıma başlatılamadı',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -456,111 +478,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     }
   };
 
-  // Setup silence detection with Web Audio API
-  const setupSilenceDetection = (stream: MediaStream) => {
-    try {
-      // Create audio context
-      audioContextRef.current = new AudioContext();
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      
-      // Connect the microphone stream to the analyzer
-      const source = audioContextRef.current.createMediaStreamSource(stream);
-      source.connect(analyserRef.current);
-      
-      // Configure analyzer settings
-      analyserRef.current.fftSize = 1024;
-      analyserRef.current.smoothingTimeConstant = 0.8;
-      
-      const bufferLength = analyserRef.current.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      
-      // Set up periodic analysis to detect silence
-      const checkSilence = () => {
-        if (!analyserRef.current || !isListening) return;
-        
-        // Get audio levels
-        analyserRef.current.getByteFrequencyData(dataArray);
-        
-        // Calculate average volume level
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i];
-        }
-        const average = sum / bufferLength / 255; // Normalize to 0-1
-        lastAudioLevelRef.current = average;
-        
-        // If audio level is below threshold, start silence timer
-        if (average < silenceThreshold.current) {
-          if (!silenceTimerRef.current) {
-            silenceTimerRef.current = setTimeout(() => {
-              // If we're still recording and silence persisted, stop recording
-              if (isListening) {
-                console.log('Silence detected for 3 seconds, stopping recording');
-                stopRecording();
-              }
-            }, silenceDurationMs);
-          }
-        } else {
-          // Reset the silence timer if audio level is above threshold
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-          }
-        }
-        
-        // Schedule next check
-        requestAnimationFrame(checkSilence);
-      };
-      
-      // Start silence detection
-      checkSilence();
-    } catch (error) {
-      console.error('Error setting up silence detection:', error);
-    }
-  };
-
-  // Function to stop recording
-  const stopRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-    }
-    
-    if (microphoneStream) {
-      microphoneStream.getTracks().forEach(track => track.stop());
-      setMicrophoneStream(null);
-    }
-    
-    // Clean up audio context and analyzer
-    if (audioContextRef.current) {
-      if (audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
+  // Function to stop speech recognition
+  const stopSpeechRecognition = () => {
+    if (speechRecognitionRef.current && isListening) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping speech recognition:', error);
       }
-      audioContextRef.current = null;
-    }
-    analyserRef.current = null;
-    
-    // Clear silence detection timer
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    
-    setMediaRecorder(null);
-    setIsListening(false);
-    
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
     }
   };
 
   // Function to toggle speech recognition
   const toggleSpeechRecognition = () => {
     if (isListening) {
-      stopRecording();
-      onClose(); // Close the recording modal
+      stopSpeechRecognition();
     } else {
-      startRecording();
+      startSpeechRecognition();
     }
   };
 
@@ -1101,7 +1035,7 @@ Analyze the customer data and conversation history, then respond appropriately t
       
       {/* Recording Modal */}
       <Modal isOpen={isOpen} onClose={() => {
-        stopRecording();
+        stopSpeechRecognition();
         onClose();
       }} isCentered>
         <ModalOverlay />
@@ -1127,7 +1061,7 @@ Analyze the customer data and conversation history, then respond appropriately t
               <Text fontWeight="medium">Konuşmaya Başlayın</Text>
               <Text fontSize="sm" color="gray.500" textAlign="center">
                 Mikrofon açık, konuştuğunuz metin otomatik olarak çevirilecektir.
-                3 saniyelik sessizlik sonrasında kayıt otomatik olarak duracaktır.
+                Konuşmanız bittiğinde, tarayıcı otomatik olarak algılayacaktır.
               </Text>
               <Progress
                 value={(recordingSeconds / 30) * 100}
@@ -1141,7 +1075,7 @@ Analyze the customer data and conversation history, then respond appropriately t
                 colorScheme="red" 
                 leftIcon={<FaStop />} 
                 onClick={() => {
-                  stopRecording();
+                  stopSpeechRecognition();
                 }}
               >
                 Kaydı Durdur
