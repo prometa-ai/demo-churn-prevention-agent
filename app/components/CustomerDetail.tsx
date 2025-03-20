@@ -35,8 +35,15 @@ import {
   AlertTitle,
   AlertDescription,
   HStack,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  Tag,
+  TagLabel,
+  Spinner,
+  Select,
 } from '@chakra-ui/react';
-import { PhoneIcon, EmailIcon, InfoIcon, WarningIcon, CheckCircleIcon } from '@chakra-ui/icons';
+import { PhoneIcon, EmailIcon, InfoIcon, WarningIcon, CheckCircleIcon, SearchIcon } from '@chakra-ui/icons';
 import { Customer } from '../models/Customer';
 import ChatInterface from './ChatInterface';
 import UsageChart from './UsageChart';
@@ -737,7 +744,9 @@ const CustomerDetail: React.FC<CustomerDetailProps> = ({ customer }) => {
           
           {/* Chat Tab */}
           <TabPanel>
-            <ChatInterface customer={customer} />
+            <Box>
+              <ChatInterface customer={customer} />
+            </Box>
           </TabPanel>
         </TabPanels>
       </Tabs>
