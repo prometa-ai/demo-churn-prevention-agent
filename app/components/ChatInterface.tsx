@@ -23,9 +23,10 @@ import {
   ModalBody,
   ModalCloseButton,
   useDisclosure,
+  Tooltip,
 } from '@chakra-ui/react';
 import { ArrowForwardIcon, PhoneIcon, InfoIcon } from '@chakra-ui/icons';
-import { FaMicrophone, FaStop } from 'react-icons/fa';
+import { FaMicrophone, FaStop, FaVolumeMute } from 'react-icons/fa';
 import { Customer } from '../models/Customer';
 
 // Define SpeechRecognition type - needed for TypeScript
@@ -251,7 +252,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
           initialTopic = 'premium_package';
         } else if (initialMessage.toLowerCase().includes('fatura') || initialMessage.toLowerCase().includes('ödeme')) {
           initialTopic = 'payment';
-        } else if (initialMessage.toLowerCase().includes('kampanya') || initialMessage.toLowerCase().includes('hizmet')) {
+        } else if (initialMessage.toLowerCase().includes('kampanya') || initialMessage.includes('hizmet')) {
           initialTopic = 'campaigns';
         }
         
@@ -502,6 +503,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !isLoading) {
       handleSendMessage();
+    }
+  };
+
+  // Function to stop TTS playback
+  const stopSpeaking = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsSpeaking(false);
     }
   };
 
@@ -1038,9 +1048,20 @@ Analyze the customer data and conversation history, then respond appropriately t
         </HStack>
         <HStack>
           {isSpeaking && (
-            <Badge colorScheme="prometaOrange" variant="solid">
-              Konuşuyor
-            </Badge>
+            <>
+              <Badge colorScheme="prometaOrange" variant="solid">
+                Konuşuyor
+              </Badge>
+              <Tooltip label="Konuşmayı durdur" placement="bottom">
+                <IconButton
+                  aria-label="Konuşmayı durdur"
+                  icon={<FaVolumeMute />}
+                  size="sm"
+                  colorScheme="prometaOrange"
+                  onClick={stopSpeaking}
+                />
+              </Tooltip>
+            </>
           )}
           <IconButton
             aria-label="Müşteriyi ara"
