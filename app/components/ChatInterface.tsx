@@ -15,9 +15,17 @@ import {
   useToast,
   Spinner,
   Badge,
+  Progress,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  useDisclosure,
 } from '@chakra-ui/react';
 import { ArrowForwardIcon, PhoneIcon, InfoIcon } from '@chakra-ui/icons';
-import { FaMicrophone } from 'react-icons/fa';
+import { FaMicrophone, FaStop } from 'react-icons/fa';
 import { Customer } from '../models/Customer';
 
 interface ChatMessage {
@@ -38,7 +46,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
 
   // Defining a type for conversation context to track topics
@@ -54,6 +69,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     initialOffer: '',
     customerResponseCount: 0
   });
+
+  // Create audio element for TTS playback
+  useEffect(() => {
+    audioRef.current = new Audio();
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   // Scroll to bottom of chat when messages change
   useEffect(() => {
@@ -99,6 +125,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         };
         
         setMessages([initialMessageObj]);
+        
+        // Convert the initial message to speech
+        handleTextToSpeech(data.initialMessage);
       } catch (error) {
         console.error('Error fetching initial message:', error);
         
@@ -136,6 +165,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         
         setMessages([initialMessageObj]);
         
+        // Convert the initial message to speech
+        handleTextToSpeech(initialMessage);
+        
         toast({
           title: 'Bilgi',
           description: 'GPT tabanlı kişiselleştirilmiş mesaj oluşturulamadı. Yerel yanıt kullanılıyor.',
@@ -150,6 +182,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     
     fetchInitialMessage();
   }, [customer.id]); // Use customer.id instead of customer.name to prevent unnecessary re-renders
+
+  // Stop recording when component unmounts
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      stopRecording();
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -216,7 +258,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       setMessages(prev => [...prev, aiResponse]);
       setIsLoading(false);
       
-      // Simulate text-to-speech
+      // Convert the AI response to speech
       handleTextToSpeech(aiResponse.text);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -225,6 +267,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       const aiResponse = generateMockAIResponse(inputMessage, customer);
       setMessages(prev => [...prev, aiResponse]);
       setIsLoading(false);
+      
+      // Convert the mock response to speech
+      handleTextToSpeech(aiResponse.text);
       
       toast({
         title: 'Hata',
@@ -242,18 +287,192 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     }
   };
 
-  const handleTextToSpeech = (text: string) => {
-    // In a real implementation, this would call the TTS service
-    // For now, we'll just simulate the speaking state
-    setIsSpeaking(true);
-    setTimeout(() => {
+  // Function to convert text to speech using OpenAI's TTS API
+  const handleTextToSpeech = async (text: string) => {
+    if (!text || !audioRef.current) return;
+    
+    try {
+      setIsSpeaking(true);
+      
+      // Call the text-to-speech API
+      const response = await fetch('/api/speech', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          action: 'text-to-speech',
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('TTS API request failed');
+      }
+      
+      // Get the audio data as a blob
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Play the audio
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.onplay = () => setIsSpeaking(true);
+        audioRef.current.onended = () => {
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+        };
+        audioRef.current.onerror = () => {
+          setIsSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          toast({
+            title: 'Hata',
+            description: 'Ses oynatılamadı',
+            status: 'error',
+            duration: 3000,
+            isClosable: true,
+          });
+        };
+        audioRef.current.play();
+      }
+    } catch (error) {
+      console.error('Text-to-speech error:', error);
       setIsSpeaking(false);
-    }, 3000);
+      toast({
+        title: 'Hata',
+        description: 'Metin sese dönüştürülemedi',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
+  // Function to start recording audio for speech-to-text
+  const startRecording = async () => {
+    try {
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicrophoneStream(stream);
+      
+      // Create a new media recorder
+      const recorder = new MediaRecorder(stream);
+      setMediaRecorder(recorder);
+      
+      // Clear any previous audio chunks
+      setAudioChunks([]);
+      
+      // Set up the recorder event handlers
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          setAudioChunks((prev) => [...prev, e.data]);
+        }
+      };
+      
+      // When recording stops, convert speech to text
+      recorder.onstop = async () => {
+        if (audioChunks.length === 0) return;
+        
+        // Create a blob from the audio chunks
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        
+        // Create form data to send to the API
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        
+        try {
+          // Call the speech-to-text API
+          const response = await fetch('/api/speech', {
+            method: 'PUT',
+            body: formData,
+          });
+          
+          if (!response.ok) {
+            throw new Error('STT API request failed');
+          }
+          
+          const data = await response.json();
+          
+          // Set the transcribed text as input
+          if (data.text) {
+            setInputMessage(data.text);
+            // Clear the recording timer and chunks
+            if (recordingTimerRef.current) {
+              clearInterval(recordingTimerRef.current);
+              setRecordingSeconds(0);
+            }
+            onClose(); // Close the recording modal
+          }
+        } catch (error) {
+          console.error('Speech-to-text error:', error);
+          toast({
+            title: 'Hata',
+            description: 'Konuşma metne dönüştürülemedi',
+            status: 'error',
+            duration: 3000,
+            isClosable: true,
+          });
+        }
+      };
+      
+      // Start recording
+      recorder.start();
+      setIsListening(true);
+      
+      // Start the recording timer
+      let seconds = 0;
+      recordingTimerRef.current = setInterval(() => {
+        seconds += 1;
+        setRecordingSeconds(seconds);
+        
+        // Auto-stop recording after 30 seconds
+        if (seconds >= 30) {
+          stopRecording();
+        }
+      }, 1000);
+      
+      // Open the recording modal
+      onOpen();
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      toast({
+        title: 'Hata',
+        description: 'Mikrofon erişimi sağlanamadı',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Function to stop recording
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    
+    if (microphoneStream) {
+      microphoneStream.getTracks().forEach(track => track.stop());
+      setMicrophoneStream(null);
+    }
+    
+    setMediaRecorder(null);
+    setIsListening(false);
+    
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  // Function to toggle speech recognition
   const toggleSpeechRecognition = () => {
-    // In a real implementation, this would toggle speech recognition
-    setIsListening(!isListening);
+    if (isListening) {
+      stopRecording();
+      onClose(); // Close the recording modal
+    } else {
+      startRecording();
+    }
   };
 
   // Function to translate agent type
@@ -783,12 +1002,64 @@ Analyze the customer data and conversation history, then respond appropriately t
           colorScheme="prometa"
           variant="ghost"
           aria-label="Mic"
-          icon={<FaMicrophone />}
+          icon={isListening ? <FaStop /> : <FaMicrophone />}
           ml={2}
           onClick={toggleSpeechRecognition}
-          bg={isListening ? 'prometa.100' : 'transparent'}
+          bg={isListening ? 'red.100' : 'transparent'}
+          color={isListening ? 'red.500' : undefined}
         />
       </Flex>
+      
+      {/* Recording Modal */}
+      <Modal isOpen={isOpen} onClose={() => {
+        stopRecording();
+        onClose();
+      }} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Ses Kaydı</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            <VStack spacing={4} align="center">
+              <Box p={4} borderRadius="full" bg="red.100" position="relative">
+                <Box
+                  position="absolute"
+                  top="0"
+                  left="0"
+                  right="0"
+                  bottom="0"
+                  borderRadius="full"
+                  bg="red.500"
+                  opacity={0.4}
+                  animation="pulse 1.5s infinite"
+                />
+                <FaMicrophone size="24px" color="red" />
+              </Box>
+              <Text fontWeight="medium">Konuşmaya Başlayın</Text>
+              <Text fontSize="sm" color="gray.500" textAlign="center">
+                Mikrofon açık, konuştuğunuz metin otomatik olarak çevirilecektir.
+              </Text>
+              <Progress
+                value={(recordingSeconds / 30) * 100}
+                size="sm"
+                colorScheme="red"
+                width="100%"
+                borderRadius="md"
+              />
+              <Text fontSize="sm">{recordingSeconds} / 30 saniye</Text>
+              <Button 
+                colorScheme="red" 
+                leftIcon={<FaStop />} 
+                onClick={() => {
+                  stopRecording();
+                }}
+              >
+                Kaydı Durdur
+              </Button>
+            </VStack>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };
