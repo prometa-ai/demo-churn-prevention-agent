@@ -55,6 +55,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
+  
+  // Add new states and refs for silence detection
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastAudioLevelRef = useRef<number>(0);
+  const silenceThreshold = useRef<number>(0.01); // Threshold for what counts as silence
+  const silenceDurationMs = 3000; // Duration of silence in ms before stopping
 
   // Defining a type for conversation context to track topics
   type ConversationContext = {
@@ -362,6 +370,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       // Clear any previous audio chunks
       setAudioChunks([]);
       
+      // Set up audio processing for silence detection
+      setupSilenceDetection(stream);
+
       // Set up the recorder event handlers
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
@@ -445,6 +456,69 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     }
   };
 
+  // Setup silence detection with Web Audio API
+  const setupSilenceDetection = (stream: MediaStream) => {
+    try {
+      // Create audio context
+      audioContextRef.current = new AudioContext();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      
+      // Connect the microphone stream to the analyzer
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyserRef.current);
+      
+      // Configure analyzer settings
+      analyserRef.current.fftSize = 1024;
+      analyserRef.current.smoothingTimeConstant = 0.8;
+      
+      const bufferLength = analyserRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      
+      // Set up periodic analysis to detect silence
+      const checkSilence = () => {
+        if (!analyserRef.current || !isListening) return;
+        
+        // Get audio levels
+        analyserRef.current.getByteFrequencyData(dataArray);
+        
+        // Calculate average volume level
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          sum += dataArray[i];
+        }
+        const average = sum / bufferLength / 255; // Normalize to 0-1
+        lastAudioLevelRef.current = average;
+        
+        // If audio level is below threshold, start silence timer
+        if (average < silenceThreshold.current) {
+          if (!silenceTimerRef.current) {
+            silenceTimerRef.current = setTimeout(() => {
+              // If we're still recording and silence persisted, stop recording
+              if (isListening) {
+                console.log('Silence detected for 3 seconds, stopping recording');
+                stopRecording();
+              }
+            }, silenceDurationMs);
+          }
+        } else {
+          // Reset the silence timer if audio level is above threshold
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+        }
+        
+        // Schedule next check
+        requestAnimationFrame(checkSilence);
+      };
+      
+      // Start silence detection
+      checkSilence();
+    } catch (error) {
+      console.error('Error setting up silence detection:', error);
+    }
+  };
+
   // Function to stop recording
   const stopRecording = () => {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -454,6 +528,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     if (microphoneStream) {
       microphoneStream.getTracks().forEach(track => track.stop());
       setMicrophoneStream(null);
+    }
+    
+    // Clean up audio context and analyzer
+    if (audioContextRef.current) {
+      if (audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    
+    // Clear silence detection timer
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
     
     setMediaRecorder(null);
@@ -1038,6 +1127,7 @@ Analyze the customer data and conversation history, then respond appropriately t
               <Text fontWeight="medium">Konuşmaya Başlayın</Text>
               <Text fontSize="sm" color="gray.500" textAlign="center">
                 Mikrofon açık, konuştuğunuz metin otomatik olarak çevirilecektir.
+                3 saniyelik sessizlik sonrasında kayıt otomatik olarak duracaktır.
               </Text>
               <Progress
                 value={(recordingSeconds / 30) * 100}
