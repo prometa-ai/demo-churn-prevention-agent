@@ -33,7 +33,7 @@ import {
   AccordionButton,
   AccordionPanel,
   AccordionIcon,
-  Divider,
+  Divider
 } from '@chakra-ui/react';
 import { SearchIcon, CheckCircleIcon, WarningIcon, TimeIcon } from '@chakra-ui/icons';
 import { useRouter } from 'next/navigation';
@@ -402,7 +402,7 @@ const CampaignsPage = () => {
             Kampanyalar
           </Heading>
           <Text color={textColor}>
-            Müşterileriniz için mevcut, yaklaşan ve geçmiş kampanyaları görüntüleyin ve yönetin.
+            Müşterileriniz için mevcut, yaklaşan ve geçmiş kampanyaları görüntüleyin ve yönetin....
           </Text>
         </Box>
         
