@@ -2,11 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { Customer } from '@/app/models/Customer';
 import { queryRagSystem } from '@/app/services/ragService';
+import { getOpenAIApiKey } from '@/src/config';
 
 // Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openai: OpenAI;
+
+async function initializeOpenAI() {
+  if (!openai) {
+    const apiKey = await getOpenAIApiKey();
+    openai = new OpenAI({
+      apiKey,
+    });
+  }
+  return openai;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +27,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Initialize OpenAI client
+    const openaiClient = await initializeOpenAI();
 
     // If the agent type is RAG, use the RAG system
     if (agentType === 'rag') {
@@ -34,7 +46,7 @@ export async function POST(request: NextRequest) {
     const prompt = gpt4oContext || createPrompt(message, customer, translateAgentRole(agentType));
 
     // Call OpenAI API
-    const completion = await openai.chat.completions.create({
+    const completion = await openaiClient.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
