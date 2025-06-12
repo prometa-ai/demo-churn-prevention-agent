@@ -1,4 +1,4 @@
-# Build stage
+# Build stage.
 FROM node:20-alpine AS builder
 
 # Install dependencies for puppeteer and build tools
