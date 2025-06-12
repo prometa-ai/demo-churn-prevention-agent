@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 
 // Initialize OpenAI client with the provided API key
 const openai = new OpenAI({
-  apiKey: '',
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Text-to-Speech endpoint
