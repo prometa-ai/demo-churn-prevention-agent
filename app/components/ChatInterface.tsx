@@ -539,11 +539,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
   };
 
   const handleSendMessage = async () => {
-    // First capture the current input message to use throughout this function
+    if (!inputMessage.trim()) return;
+
     const messageToSend = inputMessage.trim();
-    
-    if (!messageToSend) return; // Don't send empty messages
-    
+    setInputMessage('');
+    setIsLoading(true);
+
     // Add user message to chat
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -553,23 +554,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     };
     
     setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setIsLoading(true);
 
     // Update the conversation context to track customer responses
     setConversationContext(prevContext => ({
       ...prevContext,
       customerResponseCount: prevContext.customerResponseCount + 1
     }));
+
+    // Prepare context for GPT-4o
+    const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
     
+    // Determine which agent type to use based on the message content
+    const agentType = determineAgentType(messageToSend);
+
     try {
-      // Prepare context for GPT-4o
-      const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
-      
-      // Determine which agent type to use based on the message content
-      const agentType = determineAgentType(messageToSend);
-      
-      // Call the API
+      console.log('Sending message:', {
+        message: messageToSend,
+        customerId: customer.id,
+        agentType,
+        hasConversationContext: !!conversationContext,
+        hasGpt4oContext: !!gpt4oContext
+      });
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -580,48 +586,43 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
           customer,
           agentType,
           conversationContext,
-          gpt4oContext, // Pass the GPT-4o context to the API
+          gpt4oContext,
         }),
       });
+
+      console.log('API Response status:', response.status);
       
       if (!response.ok) {
-        throw new Error('API request failed');
+        const errorData = await response.json();
+        console.error('API Error:', errorData);
+        throw new Error(errorData.error || 'API isteği başarısız oldu');
       }
-      
+
       const data = await response.json();
-      
+      console.log('API Response data:', data);
+
       // Create AI response message
       const aiResponse: ChatMessage = {
         id: Date.now().toString(),
         sender: 'ai',
-        text: data.response || generateMockAIResponse(messageToSend, customer).text,
+        text: data.response,
         timestamp: new Date(),
-        agentType,
+        agentType
       };
-      
+
       setMessages(prev => [...prev, aiResponse]);
-      setIsLoading(false);
-      
-      // Convert the AI response to speech
       handleTextToSpeech(aiResponse.text);
     } catch (error) {
-      console.error('Error sending message:', error);
-      
-      // Fallback to mock response in case of error
-      const aiResponse = generateMockAIResponse(messageToSend, customer);
-      setMessages(prev => [...prev, aiResponse]);
-      setIsLoading(false);
-      
-      // Convert the mock response to speech
-      handleTextToSpeech(aiResponse.text);
-      
+      console.error('Message sending error:', error);
       toast({
         title: 'Hata',
-        description: 'Mesaj gönderilemedi. Yerel yanıt kullanılıyor.',
-        status: 'warning',
-        duration: 3000,
+        description: error instanceof Error ? error.message : 'Mesaj gönderilirken bir hata oluştu',
+        status: 'error',
+        duration: 5000,
         isClosable: true,
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 

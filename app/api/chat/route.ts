@@ -19,9 +19,24 @@ async function initializeOpenAI() {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Chat API called with request:', {
+      url: request.url,
+      method: request.method,
+      headers: Object.fromEntries(request.headers.entries())
+    });
+
     const { message, customer, agentType, conversationContext, gpt4oContext } = await request.json();
+    console.log('Request body parsed:', { 
+      hasMessage: !!message,
+      hasCustomer: !!customer,
+      customerId: customer?.id,
+      agentType,
+      hasConversationContext: !!conversationContext,
+      hasGpt4oContext: !!gpt4oContext
+    });
 
     if (!message || !customer) {
+      console.error('Missing required data:', { message, customer });
       return NextResponse.json(
         { error: 'Mesaj ve müşteri bilgileri gereklidir' },
         { status: 400 }
@@ -29,12 +44,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize OpenAI client
+    console.log('Initializing OpenAI client...');
     const openaiClient = await initializeOpenAI();
+    console.log('OpenAI client initialized successfully');
 
     // If the agent type is RAG, use the RAG system
     if (agentType === 'rag') {
       try {
+        console.log('Using RAG system...');
         const ragResponse = await queryRagSystem(message, customer);
+        console.log('RAG response received');
         return NextResponse.json({ response: ragResponse });
       } catch (error) {
         console.error('RAG system error:', error);
@@ -44,8 +63,10 @@ export async function POST(request: NextRequest) {
 
     // Use the provided GPT-4o context if available, otherwise generate a standard prompt
     const prompt = gpt4oContext || createPrompt(message, customer, translateAgentRole(agentType));
+    console.log('Using prompt:', { promptLength: prompt.length });
 
     // Call OpenAI API
+    console.log('Calling OpenAI API...');
     const completion = await openaiClient.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -59,17 +80,40 @@ export async function POST(request: NextRequest) {
         },
       ],
       temperature: 0.7,
-      max_tokens: 600, // Increased token limit for more detailed responses
+      max_tokens: 600,
     });
+    console.log('OpenAI API response received');
 
     // Extract the response
-    const response = completion.choices[0].message.content;
+    const response = completion.choices[0]?.message?.content;
+    if (!response) {
+      throw new Error('OpenAI API response is empty');
+    }
+    console.log('Response extracted:', { responseLength: response.length });
 
     return NextResponse.json({ response });
-  } catch (error) {
-    console.error('Chat API error:', error);
+  } catch (error: any) {
+    console.error('Chat API error details:', {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack,
+      cause: error?.cause
+    });
+    
+    // Check if it's an OpenAI API error
+    if (error?.response) {
+      console.error('OpenAI API error response:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
+    }
+    
     return NextResponse.json(
-      { error: 'Sohbet yanıtı oluşturulurken bir hata oluştu' },
+      { 
+        error: 'Sohbet yanıtı oluşturulurken bir hata oluştu',
+        details: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      },
       { status: 500 }
     );
   }
