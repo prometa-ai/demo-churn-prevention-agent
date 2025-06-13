@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   env: {
-    CHURN_PREVENTION_OPENAI_API_KEY: process.env.CHURN_PREVENTION_OPENAI_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   },
   output: 'standalone',
 }

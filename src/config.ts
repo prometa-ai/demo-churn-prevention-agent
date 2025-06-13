@@ -17,10 +17,10 @@ class SecretManager {
 
   public async initialize(): Promise<void> {
     if (!this.secrets) {
-      const openaiApiKey = process.env.CHURN_PREVENTION_OPENAI_API_KEY;
+      const openaiApiKey = process.env.OPENAI_API_KEY;
       
       if (!openaiApiKey) {
-        throw new Error('CHURN_PREVENTION_OPENAI_API_KEY environment variable is not set');
+        throw new Error('OPENAI_API_KEY environment variable is not set');
       }
 
       this.secrets = {

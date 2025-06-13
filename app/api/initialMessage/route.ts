@@ -18,9 +18,20 @@ async function initializeOpenAI() {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('InitialMessage API called with request:', {
+      url: request.url,
+      method: request.method,
+      headers: Object.fromEntries(request.headers.entries())
+    });
+
     const { customer } = await request.json();
+    console.log('Request body parsed:', { 
+      hasCustomer: !!customer,
+      customerId: customer?.id
+    });
 
     if (!customer) {
+      console.error('Missing required customer data');
       return NextResponse.json(
         { error: 'Müşteri bilgileri gereklidir' },
         { status: 400 }
@@ -28,7 +39,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize OpenAI client
+    console.log('Initializing OpenAI client...');
     const openaiClient = await initializeOpenAI();
+    console.log('OpenAI client initialized successfully');
 
     // Create a prompt with rich customer data for generating the initial message
     const prompt = createInitialMessagePrompt(customer);
@@ -59,10 +72,28 @@ export async function POST(request: NextRequest) {
       initialMessage,
       topic
     });
-  } catch (error) {
-    console.error('Initial message API error:', error);
+  } catch (error: any) {
+    console.error('InitialMessage API error details:', {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack,
+      cause: error?.cause
+    });
+    
+    // Check if it's an OpenAI API error
+    if (error?.response) {
+      console.error('OpenAI API error response:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
+    }
+    
     return NextResponse.json(
-      { error: 'Başlangıç mesajı oluşturulurken bir hata oluştu' },
+      { 
+        error: 'Başlangıç mesajı oluşturulurken bir hata oluştu',
+        details: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      },
       { status: 500 }
     );
   }
