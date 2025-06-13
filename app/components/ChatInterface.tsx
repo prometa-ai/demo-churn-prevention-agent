@@ -544,7 +544,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
     const messageToSend = inputMessage.trim();
     setInputMessage('');
     setIsLoading(true);
-
+    
     // Add user message to chat
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -560,13 +560,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
       ...prevContext,
       customerResponseCount: prevContext.customerResponseCount + 1
     }));
-
-    // Prepare context for GPT-4o
-    const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
     
-    // Determine which agent type to use based on the message content
-    const agentType = determineAgentType(messageToSend);
-
+      // Prepare context for GPT-4o
+      const gpt4oContext = prepareGPT4OContext(customer, [...messages, userMessage]);
+      
+      // Determine which agent type to use based on the message content
+      const agentType = determineAgentType(messageToSend);
+      
     try {
       console.log('Sending message:', {
         message: messageToSend,
@@ -597,10 +597,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         console.error('API Error:', errorData);
         throw new Error(errorData.error || 'API isteği başarısız oldu');
       }
-
+      
       const data = await response.json();
       console.log('API Response data:', data);
-
+      
       // Create AI response message
       const aiResponse: ChatMessage = {
         id: Date.now().toString(),
@@ -609,7 +609,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ customer }) => {
         timestamp: new Date(),
         agentType
       };
-
+      
       setMessages(prev => [...prev, aiResponse]);
       handleTextToSpeech(aiResponse.text);
     } catch (error) {

@@ -1,6 +1,6 @@
-import { HNSWLib } from 'langchain/vectorstores/hnswlib';
-import { OpenAIEmbeddings } from 'langchain/embeddings/openai';
-import { OpenAI } from 'langchain/llms/openai';
+import { HNSWLib } from '@langchain/community/vectorstores/hnswlib';
+import { OpenAIEmbeddings } from '@langchain/openai';
+import { OpenAI } from '@langchain/openai';
 import { RetrievalQAChain } from 'langchain/chains';
 import { Customer } from '../models/Customer';
 import path from 'path';
