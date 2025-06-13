@@ -90,7 +90,7 @@ Bu sistem, müşteri devamlılığını artırmak ve müşteri memnuniyetini yü
 
 3. `.env.local` dosyasını düzenleyin:
    ```
-   OPENAI_API_KEY=your_openai_api_key
+   CHURN_PREVENTION_OPENAI_API_KEY=your_openai_api_key
    ```
 
 4. Geliştirme sunucusunu başlatın:

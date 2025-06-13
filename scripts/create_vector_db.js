@@ -10,8 +10,8 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.join(__dirname, '../.env.local') });
 
 // Check if OpenAI API key is available
-if (!process.env.OPENAI_API_KEY) {
-  console.error('OPENAI_API_KEY is not set in .env.local file');
+if (!process.env.CHURN_PREVENTION_OPENAI_API_KEY) {
+  console.error('CHURN_PREVENTION_OPENAI_API_KEY is not set in .env.local file');
   process.exit(1);
 }
 
@@ -38,7 +38,7 @@ async function createVectorDb() {
   
   // Initialize OpenAI embeddings
   const embeddings = new OpenAIEmbeddings({
-    openAIApiKey: process.env.OPENAI_API_KEY,
+    openAIApiKey: process.env.CHURN_PREVENTION_OPENAI_API_KEY,
   });
   
   // Load and process each PDF

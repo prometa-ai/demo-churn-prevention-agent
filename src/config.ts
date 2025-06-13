@@ -1,5 +1,5 @@
 interface Secrets {
-  OPENAI_API_KEY: string;
+  CHURN_PREVENTION_OPENAI_API_KEY: string;
 }
 
 class SecretManager {
@@ -17,14 +17,14 @@ class SecretManager {
 
   public async initialize(): Promise<void> {
     if (!this.secrets) {
-      const openaiApiKey = process.env.OPENAI_API_KEY;
+      const openaiApiKey = process.env.CHURN_PREVENTION_OPENAI_API_KEY;
       
       if (!openaiApiKey) {
-        throw new Error('OPENAI_API_KEY environment variable is not set');
+        throw new Error('CHURN_PREVENTION_OPENAI_API_KEY environment variable is not set');
       }
 
       this.secrets = {
-        OPENAI_API_KEY: openaiApiKey,
+        CHURN_PREVENTION_OPENAI_API_KEY: openaiApiKey,
       };
     }
   }
@@ -41,5 +41,5 @@ export const secretManager = SecretManager.getInstance();
 
 export const getOpenAIApiKey = async (): Promise<string> => {
   await secretManager.initialize();
-  return secretManager.getSecret('OPENAI_API_KEY');
+  return secretManager.getSecret('CHURN_PREVENTION_OPENAI_API_KEY');
 }; 

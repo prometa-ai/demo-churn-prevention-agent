@@ -10,7 +10,7 @@ services:
     environment:
       - NODE_ENV=production
       # Add your environment variables here
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CHURN_PREVENTION_OPENAI_API_KEY=${CHURN_PREVENTION_OPENAI_API_KEY}
       - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
     restart: unless-stopped

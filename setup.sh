@@ -22,7 +22,7 @@ mkdir -p data/vectordb
 echo -e "\n${GREEN}3. .env.local dosyası kontrol ediliyor...${NC}"
 if [ ! -f .env.local ]; then
   echo -e "${YELLOW}   .env.local dosyası bulunamadı. Oluşturuluyor...${NC}"
-  echo "OPENAI_API_KEY=your_openai_api_key_here" > .env.local
+  echo "CHURN_PREVENTION_OPENAI_API_KEY=your_openai_api_key_here" > .env.local
   echo -e "${RED}   Lütfen .env.local dosyasını düzenleyerek OpenAI API anahtarınızı ekleyin.${NC}"
 else
   echo -e "${GREEN}   .env.local dosyası mevcut.${NC}"
