@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { getOpenAIApiKey } from '@/src/config';
 
-// Initialize OpenAI client with the provided API key
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI client
+let openai: OpenAI;
+
+async function initializeOpenAI() {
+  if (!openai) {
+    const apiKey = await getOpenAIApiKey();
+    openai = new OpenAI({
+      apiKey,
+    });
+  }
+  return openai;
+}
 
 // Text-to-Speech endpoint
 export async function POST(request: NextRequest) {
@@ -19,8 +28,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'text-to-speech') {
+      // Initialize OpenAI client
+      const openaiClient = await initializeOpenAI();
+      
       // Convert text to speech using OpenAI's TTS
-      const audioResponse = await openai.audio.speech.create({
+      const audioResponse = await openaiClient.audio.speech.create({
         model: 'tts-1',
         voice: 'alloy',
         input: text,

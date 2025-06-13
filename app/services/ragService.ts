@@ -5,6 +5,7 @@ import { RetrievalQAChain } from 'langchain/chains';
 import { Customer } from '../models/Customer';
 import path from 'path';
 import fs from 'fs';
+import { getOpenAIApiKey } from '@/src/config';
 
 // Path to vector database
 const vectorDbDir = path.join(process.cwd(), 'data', 'vectordb');
@@ -12,17 +13,26 @@ const vectorDbDir = path.join(process.cwd(), 'data', 'vectordb');
 // Check if vector database exists
 const vectorDbExists = fs.existsSync(vectorDbDir);
 
-// Initialize OpenAI embeddings
-const embeddings = new OpenAIEmbeddings({
-  openAIApiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI embeddings and model
+let embeddings: OpenAIEmbeddings | null = null;
+let model: OpenAI | null = null;
 
-// Initialize OpenAI model
-const model = new OpenAI({
-  openAIApiKey: process.env.OPENAI_API_KEY,
-  modelName: 'gpt-4o',
-  temperature: 0.7,
-});
+async function initializeOpenAI() {
+  if (!embeddings || !model) {
+    const apiKey = await getOpenAIApiKey();
+    
+    embeddings = new OpenAIEmbeddings({
+      openAIApiKey: apiKey,
+    });
+
+    model = new OpenAI({
+      openAIApiKey: apiKey,
+      modelName: 'gpt-4o',
+      temperature: 0.7,
+    });
+  }
+  return { embeddings, model };
+}
 
 // Cache the vector store to avoid reloading it for each query
 let vectorStore: HNSWLib | null = null;
@@ -38,6 +48,10 @@ async function initVectorStore() {
   
   try {
     console.log('Loading vector database...');
+    const { embeddings } = await initializeOpenAI();
+    if (!embeddings) {
+      throw new Error('Failed to initialize OpenAI embeddings');
+    }
     return await HNSWLib.load(vectorDbDir, embeddings);
   } catch (error) {
     console.error('Error loading vector database:', error);
@@ -46,35 +60,37 @@ async function initVectorStore() {
 }
 
 /**
- * Query the RAG system with a customer question
+ * Query the RAG system
  */
-export async function queryRagSystem(question: string, customer: Customer): Promise<string> {
-  // Initialize vector store if not already done
-  if (!vectorStore && vectorDbExists) {
-    vectorStore = await initVectorStore();
-  }
-  
-  // If vector store is not available, return a fallback response
-  if (!vectorStore) {
-    return generateFallbackResponse(question, customer);
-  }
-  
+export async function queryRagSystem(message: string, customer: Customer): Promise<string> {
   try {
-    // Create a retrieval chain
+    // Initialize vector store if not already initialized
+    if (!vectorStore) {
+      vectorStore = await initVectorStore();
+    }
+
+    if (!vectorStore) {
+      throw new Error('Vector store not initialized');
+    }
+
+    // Initialize OpenAI model if not already initialized
+    const { model } = await initializeOpenAI();
+    if (!model) {
+      throw new Error('Failed to initialize OpenAI model');
+    }
+
+    // Create a chain that combines the vector store and the language model
     const chain = RetrievalQAChain.fromLLM(model, vectorStore.asRetriever());
-    
-    // Enhance the question with customer context
-    const enhancedQuestion = enhanceQuestionWithContext(question, customer);
-    
+
     // Query the chain
     const response = await chain.call({
-      query: enhancedQuestion,
+      query: message,
     });
-    
+
     return response.text;
   } catch (error) {
     console.error('Error querying RAG system:', error);
-    return generateFallbackResponse(question, customer);
+    throw error;
   }
 }
 

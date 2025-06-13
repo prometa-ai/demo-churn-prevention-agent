@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { Customer } from '@/app/models/Customer';
+import { getOpenAIApiKey } from '@/src/config';
 
 // Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openai: OpenAI;
+
+async function initializeOpenAI() {
+  if (!openai) {
+    const apiKey = await getOpenAIApiKey();
+    openai = new OpenAI({
+      apiKey,
+    });
+  }
+  return openai;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,11 +27,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Initialize OpenAI client
+    const openaiClient = await initializeOpenAI();
+
     // Create a prompt with rich customer data for generating the initial message
     const prompt = createInitialMessagePrompt(customer);
 
     // Call OpenAI API
-    const completion = await openai.chat.completions.create({
+    const completion = await openaiClient.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
