@@ -24,7 +24,7 @@ import { useRouter } from 'next/navigation';
 // Mock kullanıcı verileri (gerçek uygulamada bir veritabanı kullanılmalıdır)
 const MOCK_USERS = [
   { username: 'admin', password: 'prometa2023' },
-  { username: 'demo', password: 'demo1234' },
+  { username: 'prometa', password: 'prometaisfuture#2025' },
 ];
 
 export default function LoginForm() {
@@ -168,10 +168,6 @@ export default function LoginForm() {
           >
             Giriş Yap
           </Button>
-          
-          <Text fontSize="sm" mt={2}>
-            Demo hesabı: <Box as="span" fontWeight="bold">demo / demo1234</Box>
-          </Text>
           
           <Link fontSize="sm" color="prometa.600" alignSelf="flex-end">
             Şifremi unuttum
